@@ -1,0 +1,62 @@
+[package]
+name        = "agentsm-rs"
+version     = "0.1.0"
+edition     = "2021"
+description = "Production-grade Agentic AI library using Hybrid State Machine pattern"
+license     = "MIT"
+repository  = "https://github.com/yourusername/agentsm-rs"
+keywords    = ["ai", "agent", "state-machine", "llm", "anthropic"]
+categories  = ["science", "asynchronous"]
+
+[lib]
+name = "agentsm"
+path = "src/lib.rs"
+
+[[example]]
+name = "basic_agent"
+path = "examples/basic_agent.rs"
+
+[[example]]
+name = "multi_tool_agent"
+path = "examples/multi_tool_agent.rs"
+
+[[example]]
+name = "anthropic_agent"
+path = "examples/anthropic_agent.rs"
+
+[dependencies]
+# Async runtime
+tokio        = { version = "1",    features = ["full"] }
+
+# Serialization — used for tool schemas and LLM API payloads
+serde        = { version = "1",    features = ["derive"] }
+serde_json   = "1"
+
+# LLM provider — OpenAI + all OpenAI-compatible APIs
+async-openai = "0.23"
+
+# HTTP client — Anthropic API (no official Rust SDK yet)
+reqwest      = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Error handling
+anyhow       = "1"
+thiserror    = "1"
+
+# Structured logging
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async trait support
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio   = { version = "1",    features = ["full", "test-util"] }
+mockall = "0.12"
+
+[features]
+default  = ["openai", "anthropic"]
+openai   = []
+anthropic = []
