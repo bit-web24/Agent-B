@@ -63,6 +63,59 @@ impl AgentBuilder {
         self.memory.blacklist_tool(name); self
     }
 
+    /// Set the model used for all planning steps.
+    ///
+    /// This populates the `"default"` key in `config.models`.
+    /// Use `.model_for()` if you need different models for different task types.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use agentsm::AgentBuilder;
+    /// AgentBuilder::new("task").model("gpt-4o");
+    /// AgentBuilder::new("task").model("claude-sonnet-4-6");  // Anthropic
+    /// AgentBuilder::new("task").model("llama3.2");           // Ollama
+    /// ```
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.memory.config.models.insert("default".to_string(), model.into());
+        self
+    }
+
+    /// Set the model for a specific task type.
+    ///
+    /// Overrides the `"default"` model for the given task_type key.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use agentsm::AgentBuilder;
+    /// AgentBuilder::new("task")
+    ///     .model("gpt-4o")                           // default for all tasks
+    ///     .model_for("calculation", "gpt-4o-mini")   // cheaper for math tasks
+    ///     .model_for("research",    "gpt-4o");        // best for research
+    /// ```
+    pub fn model_for(mut self, task_type: impl Into<String>, model: impl Into<String>) -> Self {
+        self.memory.config.models.insert(task_type.into(), model.into());
+        self
+    }
+
+    /// Supply the full model map all at once.
+    ///
+    /// Replaces any previously set models entirely.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use agentsm::AgentBuilder;
+    /// use std::collections::HashMap;
+    /// let models: HashMap<String, String> = [
+    ///     ("default".into(),     "mistral-large-latest".into()),
+    ///     ("calculation".into(), "mistral-small-latest".into()),
+    /// ].into();
+    /// AgentBuilder::new("task").models(models);
+    /// ```
+    pub fn models(mut self, models: std::collections::HashMap<String, String>) -> Self {
+        self.memory.config.models = models;
+        self
+    }
+
     /// Builds the AgentEngine with all default state handlers.
     pub fn build(mut self) -> Result<AgentEngine, AgentError> {
         let llm = self.llm

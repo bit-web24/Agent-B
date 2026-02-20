@@ -8,12 +8,19 @@ use crate::types::{LlmResponse, ToolCall};
 pub struct PlanningState;
 
 impl PlanningState {
-    fn select_model(&self, task_type: &str) -> &'static str {
-        match task_type {
-            "research"    => "claude-opus-4-6",
-            "calculation" => "claude-haiku-4-5-20251001",
-            _             => "claude-sonnet-4-6",
-        }
+    /// Resolve the model to use for this call.
+    ///
+    /// Priority:
+    ///   1. `memory.config.models[task_type]`  — exact task-type match
+    ///   2. `memory.config.models["default"]`  — generic fallback
+    ///   3. `""`                               — let the LLmCaller use its own default
+    fn resolve_model<'a>(&self, memory: &'a AgentMemory) -> &'a str {
+        let models = &memory.config.models;
+        models
+            .get(&memory.task_type)
+            .or_else(|| models.get("default"))
+            .map(|s| s.as_str())
+            .unwrap_or("")
     }
 
     fn handle_tool_call(&self, memory: &mut AgentMemory, tool: ToolCall, confidence: f64) -> Event {
@@ -86,8 +93,8 @@ impl AgentState for PlanningState {
         memory.step += 1;
         memory.log("Planning", "STEP_START", &format!("step={}/{}", memory.step, memory.config.max_steps));
 
-        // 3. Select model
-        let model = self.select_model(&memory.task_type);
+        // 3. Resolve model
+        let model = self.resolve_model(memory);
 
         // 4. Call LLM
         match llm.call(memory, tools, model) {

@@ -11,6 +11,7 @@ pub struct AgentConfig {
     pub confidence_threshold:  f64,    // Confidence floor before reflection
     pub reflect_every_n_steps: usize,  // Periodic history compression interval
     pub min_answer_length:     usize,  // Minimum chars for a valid final answer
+    pub models: HashMap<String, String>, // task_type → model name
 }
 
 impl Default for AgentConfig {
@@ -21,6 +22,7 @@ impl Default for AgentConfig {
             confidence_threshold:  0.4,
             reflect_every_n_steps: 5,
             min_answer_length:     20,
+            models:                HashMap::new(), // no hardcoded defaults
         }
     }
 }
@@ -52,6 +54,7 @@ AgentBuilder::new("task")
         confidence_threshold:  0.3,
         reflect_every_n_steps: 8,
         min_answer_length:     50,
+        ..Default::default()   // includes models: HashMap::new()
     })
     .build()?
 ```
@@ -186,17 +189,47 @@ AgentBuilder::new("task")
 
 ---
 
-## Task Type
+## Models
 
-Controls which model tier `PlanningState` selects:
+The `models` field maps task type strings to model name strings. **No model names are hardcoded in the library.**
+
+### Via builder (recommended)
 
 ```rust
 AgentBuilder::new("task")
-    .llm(llm)
-    .task_type("research")     // → claude-opus-4-6 / gpt-4o
-    .task_type("calculation")  // → claude-haiku / gpt-4o-mini
-    .task_type("default")      // → claude-sonnet / gpt-4o (the default)
-    .build()?
+    .model("gpt-4o")                           // sets ["default"]
+    .model_for("calculation", "gpt-4o-mini")   // cheaper for math
+    .model_for("research",    "gpt-4o")         // best for research
+```
+
+### Via full models map
+
+```rust
+AgentBuilder::new("task")
+    .models([
+        ("default".into(),     "llama3.2".into()),
+        ("calculation".into(), "qwen2.5-coder:7b".into()),
+    ].into())
+```
+
+### Resolution order
+
+`PlanningState` resolves the model on each call:
+1. `models[task_type]` — exact match
+2. `models["default"]` — generic fallback
+3. `""` — empty string (LlmCaller decides, usually errors)
+
+---
+
+## Task Type
+
+The lookup key used in `config.models`. Set it to route different tasks to different models:
+
+```rust
+AgentBuilder::new("task")
+    .task_type("research")      // → models["research"] or ["default"]
+    .task_type("calculation")   // → models["calculation"] or ["default"]
+    .task_type("my_custom_key") // any string — fully user-defined
 ```
 
 ---
@@ -206,37 +239,23 @@ AgentBuilder::new("task")
 ### Fast, Cheap Agent (simple tasks)
 
 ```rust
-AgentConfig {
-    max_steps:             5,
-    max_retries:           1,
-    confidence_threshold:  0.0,  // skip confidence check
-    reflect_every_n_steps: 0,    // no reflection
-    min_answer_length:     10,
-}
+AgentConfig { max_steps: 5, max_retries: 1, confidence_threshold: 0.0,
+              reflect_every_n_steps: 0, min_answer_length: 10, ..Default::default() }
 ```
-+ `.task_type("calculation")`  → cheapest model tier
++ `.model("gpt-4o-mini")` or `.model("claude-haiku-4-5-20251001")`
 
 ### Deep Research Agent (complex tasks)
 
 ```rust
-AgentConfig {
-    max_steps:             30,
-    max_retries:           3,
-    confidence_threshold:  0.4,
-    reflect_every_n_steps: 5,
-    min_answer_length:     100,
-}
+AgentConfig { max_steps: 30, max_retries: 3, confidence_threshold: 0.4,
+              reflect_every_n_steps: 5, min_answer_length: 100, ..Default::default() }
 ```
-+ `.task_type("research")` → highest quality model tier
++ `.model("gpt-4o")` or `.model("claude-opus-4-6")`
 
 ### Long-Running Agent (many tool calls)
 
 ```rust
-AgentConfig {
-    max_steps:             50,
-    max_retries:           3,
-    confidence_threshold:  0.4,
-    reflect_every_n_steps: 8,   // reflect less often, trust large context window
-    min_answer_length:     50,
-}
+AgentConfig { max_steps: 50, max_retries: 3, confidence_threshold: 0.4,
+              reflect_every_n_steps: 8, min_answer_length: 50, ..Default::default() }
 ```
++ `.model("gpt-4o")` — large context window model

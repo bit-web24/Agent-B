@@ -88,6 +88,27 @@ pub struct AgentConfig {
 
     /// Minimum answer length in characters
     pub min_answer_length: usize,
+
+    /// Model selection map: task_type → model name string.
+    ///
+    /// The key `"default"` is used as the fallback when the agent's
+    /// `task_type` has no explicit entry.
+    ///
+    /// Example:
+    /// ```no_run
+    /// # use std::collections::HashMap;
+    /// # use agentsm::AgentConfig;
+    /// let _config = AgentConfig {
+    ///     models: [
+    ///         ("default".to_string(),     "gpt-4o".to_string()),
+    ///         ("research".to_string(),    "gpt-4o".to_string()),
+    ///         ("calculation".to_string(), "gpt-4o-mini".to_string()),
+    ///     ].into(),
+    ///     ..Default::default()
+    /// };
+    /// ```
+    /// Leave empty to fall back on the LLM caller's own default.
+    pub models: HashMap<String, String>,
 }
 
 impl Default for AgentConfig {
@@ -98,6 +119,8 @@ impl Default for AgentConfig {
             confidence_threshold:  0.4,
             reflect_every_n_steps: 5,
             min_answer_length:     20,
+            models:                HashMap::new(), // no hardcoded defaults
         }
     }
 }
+

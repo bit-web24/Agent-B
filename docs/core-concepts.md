@@ -204,17 +204,35 @@ pub struct AgentConfig {
 }
 ```
 
-### Model Selection by `task_type`
+### Model Selection
 
-`PlanningState` automatically selects a model tier based on `memory.task_type`:
+Model names are **not hardcoded** anywhere in the library. `PlanningState` reads them from `memory.config.models` at runtime:
 
-| `task_type` | Anthropic Model | OpenAI Model |
-|---|---|---|
-| `"research"` | `claude-opus-4-6` | `gpt-4o` |
-| `"calculation"` | `claude-haiku-4-5-20251001` | `gpt-4o-mini` |
-| `"default"` (any other) | `claude-sonnet-4-6` | `gpt-4o` |
+**Resolution priority:**
+1. `config.models[task_type]` — exact task-type match (e.g. `"calculation"`)
+2. `config.models["default"]` — generic fallback
+3. `""` — empty string, lets the `LlmCaller` use its own internal default
 
-The model string is passed to the LLM caller — it routes to the right API based on the model name prefix.
+**Setting models via the builder:**
+```rust
+AgentBuilder::new("task")
+    .model("gpt-4o")                            // sets "default" key
+    .model_for("calculation", "gpt-4o-mini")    // sets "calculation" key
+    .model_for("research",    "gpt-4o")         // sets "research" key
+```
+
+**Setting models via `AgentConfig`:**
+```rust
+AgentConfig {
+    models: [
+        ("default".to_string(),     "llama3.2".to_string()),
+        ("calculation".to_string(), "qwen2.5-coder:7b".to_string()),
+    ].into(),
+    ..Default::default()
+}
+```
+
+The `task_type` value you set on the builder is the lookup key. You can add any key names you like — the library doesn’t restrict the set of task type strings.
 
 ---
 

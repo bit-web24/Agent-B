@@ -8,7 +8,7 @@
 //! OPENAI_API_KEY=sk-... cargo run --example multi_tool_agent
 //! ```
 
-use agentsm::{AgentBuilder, AgentConfig};
+use agentsm::AgentBuilder;
 use agentsm::llm::{OpenAiCaller, LlmCallerExt};
 use serde_json::json;
 use std::collections::HashMap;
@@ -22,27 +22,27 @@ async fn main() -> anyhow::Result<()> {
 
     let llm = Box::new(LlmCallerExt(OpenAiCaller::new()));
 
-    // Custom configuration — tighter limits for demonstration
-    let config = AgentConfig {
-        max_steps:             8,
-        max_retries:           2,
-        confidence_threshold:  0.3,
-        reflect_every_n_steps: 4,
-        min_answer_length:     30,
-    };
 
     let mut engine = AgentBuilder::new(
             "Please calculate 137 multiplied by 48, and also tell me the current \
              weather conditions in London, UK."
         )
-        // "calculation" routes to a cheaper/faster model tier
+        // "calculation" routes to a cheaper/faster model for this task type.
+        // Model selection is fully configurable — no model names are hardcoded:
         .task_type("calculation")
+        // Use a capable model as the default, and a cheaper/faster model for calculations.
+        // Change these to any model supported by your LLM provider:
+        //   OpenAI:    "gpt-4o" / "gpt-4o-mini"
+        //   Anthropic: "claude-sonnet-4-6" / "claude-haiku-4-5-20251001"
+        //   Ollama:    "llama3.2" / "qwen2.5-coder:7b"
+        .model("gpt-4o")                            // default for unspecified task types
+        .model_for("calculation", "gpt-4o-mini")    // cheaper model for math
         .system_prompt(
             "You are a precise assistant with access to a calculator and weather tools. \
              Always use the calculator for arithmetic. Never guess weather — always use the tool."
         )
         .llm(llm)
-        .config(config)
+        .max_steps(8)
         // ── Tool 1: Calculator ────────────────────────────────────────────────
         .tool(
             "calculator",

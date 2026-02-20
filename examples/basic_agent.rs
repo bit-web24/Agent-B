@@ -8,7 +8,7 @@
 //! RUST_LOG=debug OPENAI_API_KEY=sk-... cargo run --example basic_agent
 //! ```
 
-use agentsm::{AgentBuilder, AgentConfig};
+use agentsm::AgentBuilder;
 use agentsm::llm::{OpenAiCaller, LlmCallerExt};
 use serde_json::json;
 use std::collections::HashMap;
@@ -23,25 +23,23 @@ async fn main() -> anyhow::Result<()> {
     // Build an OpenAI LLM caller (reads OPENAI_API_KEY from environment)
     let llm = Box::new(LlmCallerExt(OpenAiCaller::new()));
 
-    // Configure the agent with a reasonable cap
-    let config = AgentConfig {
-        max_steps:             10,
-        max_retries:           3,
-        confidence_threshold:  0.4,
-        reflect_every_n_steps: 5,
-        min_answer_length:     20,
-    };
-
     let mut engine = AgentBuilder::new(
             "What is the capital of France and what is its population?"
         )
         .task_type("research")
+        // Model to use — works with OpenAI, Anthropic, Ollama, or any compatible provider.
+        // Change this to any model your LLM caller supports:
+        //   OpenAI:    "gpt-4o", "gpt-4o-mini", "o1"
+        //   Anthropic: "claude-opus-4-6", "claude-sonnet-4-6"
+        //   Groq:      "llama-3.3-70b-versatile"
+        //   Ollama:    "llama3.2", "qwen2.5-coder:7b"
+        .model("gpt-4o")
         .system_prompt(
             "You are a helpful research assistant. \
              Use the search tool to find information before answering."
         )
         .llm(llm)
-        .config(config)
+        .max_steps(10)
         .tool(
             "search",
             "Search the web for current information. Use for any factual queries.",

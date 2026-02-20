@@ -32,8 +32,13 @@ async fn main() -> anyhow::Result<()> {
             "What are the key design principles of the Rust programming language, \
              and how does its ownership model prevent memory safety issues?"
         )
-        // "research" task type selects claude-opus-4-6 (highest quality)
         .task_type("research")
+        // Specify the Claude model explicitly — no model names are hardcoded in the library.
+        // Swap out for any model your Anthropic plan supports:
+        //   "claude-opus-4-6"           — highest quality
+        //   "claude-sonnet-4-6"         — balanced
+        //   "claude-haiku-4-5-20251001" — fast and cheap
+        .model("claude-opus-4-6")
         .system_prompt(
             "You are an expert software engineer specializing in systems programming. \
              Use the knowledge_base tool to retrieve accurate technical information \

@@ -114,15 +114,23 @@ let caller = AnthropicCaller::new("sk-ant-api03-...");
 let llm = Box::new(LlmCallerExt(caller));
 ```
 
-### Claude Model Strings
+### Anthropic Model Strings
 
-Pass via `task_type` routing (see [Core Concepts](./core-concepts.md#model-selection-by-task_type)) or use a custom `PlanningState`:
+Model names are **not hardcoded** in the library — set them via the builder:
 
-| Tier | Model string |
-|---|---|
-| Research (highest quality) | `"claude-opus-4-6"` |
-| Default (balanced) | `"claude-sonnet-4-6"` |
-| Calculation (fast/cheap) | `"claude-haiku-4-5-20251001"` |
+```rust
+// Single model for all tasks
+AnthropicBuilder::new("task")
+    .model("claude-opus-4-6")           // highest quality
+    .model("claude-sonnet-4-6")         // balanced  
+    .model("claude-haiku-4-5-20251001") // fast/cheap
+
+// Different models per task type
+AgentBuilder::new("task")
+    .model("claude-sonnet-4-6")                             // default
+    .model_for("research",    "claude-opus-4-6")            // best for research
+    .model_for("calculation", "claude-haiku-4-5-20251001")  // cheapest for math
+```
 
 ---
 
