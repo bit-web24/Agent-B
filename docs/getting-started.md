@@ -24,42 +24,32 @@ anyhow = "1"
 The complete minimal example — an agent that uses a search tool to answer a question:
 
 ```rust
-use agentsm::{AgentBuilder};
-use agentsm::llm::{OpenAiCaller, LlmCallerExt};
+use agentsm::{AgentBuilder, Tool};
 use serde_json::json;
 use std::collections::HashMap;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 1. Create an LLM caller (reads OPENAI_API_KEY from env)
-    let llm = Box::new(LlmCallerExt(OpenAiCaller::new()));
-
-    // 2. Build the agent
+    // Build the agent — one line per concern
     let mut engine = AgentBuilder::new("What is the capital of Japan?")
-        .llm(llm)
-        .tool(
-            "search",
-            "Search the web for factual information.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "The search query" }
-                },
-                "required": ["query"]
-            }),
-            Box::new(|args: &HashMap<String, serde_json::Value>| {
-                let query = args["query"].as_str().unwrap_or("");
-                Ok(format!("Search results for '{}': Tokyo is the capital of Japan.", query))
-            }),
+        .openai("sk-...")       // or .groq("gsk_...") or .ollama("") or .anthropic("sk-ant-...")
+        .model("gpt-4o")
+        .retry_on_error(2)      // auto-retry on transient LLM failures
+        .add_tool(
+            Tool::new("search", "Search the web for factual information.")
+                .param("query", "string", "The search query")
+                .call(|args| {
+                    let query = args["query"].as_str().unwrap_or("");
+                    Ok(format!("Search results for '{}': Tokyo is the capital of Japan.", query))
+                })
         )
         .build()?;
 
-    // 3. Run to completion
+    // Run to completion
     match engine.run() {
         Ok(answer) => println!("Answer: {}", answer),
         Err(e)     => eprintln!("Failed: {}", e),
     }
-
     Ok(())
 }
 ```

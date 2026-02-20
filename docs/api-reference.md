@@ -16,41 +16,57 @@ impl AgentBuilder {
     pub fn new(task: impl Into<String>) -> Self
 
     /// Set the task type for model selection routing.
-    /// "research" | "calculation" | "default" (default: "default")
     pub fn task_type(self, t: impl Into<String>) -> Self
 
     /// Set the system prompt prepended to every LLM call.
     pub fn system_prompt(self, p: impl Into<String>) -> Self
 
-    /// Set the LLM caller. Required — build() returns BuildError without this.
+    // ── Provider shortcuts ───────────────────────────────────────────────
+
+    /// Set the LLM caller explicitly (escape hatch for custom providers).
     pub fn llm(self, llm: Box<dyn LlmCaller>) -> Self
 
-    /// Set the full AgentConfig.
+    /// Use OpenAI API. Pass API key or "" to read OPENAI_API_KEY from env.
+    pub fn openai(self, api_key: impl Into<String>) -> Self
+
+    /// Use Groq API (OpenAI-compatible). Pass Groq API key.
+    pub fn groq(self, api_key: impl Into<String>) -> Self
+
+    /// Use local Ollama. Pass base URL or "" for http://localhost:11434/v1.
+    pub fn ollama(self, base_url: impl Into<String>) -> Self
+
+    /// Use Anthropic API. Pass API key or "" to read ANTHROPIC_API_KEY from env.
+    pub fn anthropic(self, api_key: impl Into<String>) -> Self
+
+    // ── Retry policy ─────────────────────────────────────────────────────
+
+    /// Wrap LLM caller with exponential-backoff retry (1s, 2s, 4s, … cap 30s).
+    /// Auth errors (401/403) are never retried.
+    pub fn retry_on_error(self, n: u32) -> Self
+
+    // ── Configuration ────────────────────────────────────────────────────
+
     pub fn config(self, config: AgentConfig) -> Self
-
-    /// Shortcut to set max_steps only.
     pub fn max_steps(self, n: usize) -> Self
+    pub fn model(self, model: impl Into<String>) -> Self          // sets "default" key
+    pub fn model_for(self, task_type, model) -> Self              // per-task-type
+    pub fn models(self, models: HashMap<String, String>) -> Self  // full map
 
-    /// Register a tool with name, description, JSON Schema, and function.
-    pub fn tool(
-        self,
-        name:        impl Into<String>,
-        description: impl Into<String>,
-        schema:      serde_json::Value,
-        func:        ToolFn,
-    ) -> Self
+    // ── Tool registration ────────────────────────────────────────────────
+
+    /// Register a raw tool (name, description, JSON Schema, function).
+    pub fn tool(self, name, description, schema: Value, func: ToolFn) -> Self
+
+    /// Register a tool built with the Tool builder.
+    pub fn add_tool(self, tool: Tool) -> Self
 
     /// Prevent the agent from using the named tool.
     pub fn blacklist_tool(self, name: impl Into<String>) -> Self
 
-    /// Build with all default state handlers.
-    pub fn build(self) -> Result<AgentEngine, AgentError>
+    // ── Build ────────────────────────────────────────────────────────────
 
-    /// Build with overridden state handlers (advanced).
-    pub fn build_with_handlers(
-        self,
-        extra_handlers: HashMap<&'static str, Box<dyn AgentState>>,
-    ) -> Result<AgentEngine, AgentError>
+    pub fn build(self) -> Result<AgentEngine, AgentError>
+    pub fn build_with_handlers(self, extra: HashMap<&'static str, Box<dyn AgentState>>) -> Result<AgentEngine, AgentError>
 }
 ```
 
@@ -161,11 +177,12 @@ pub struct HistoryEntry {
 
 ```rust
 pub struct AgentConfig {
-    pub max_steps:             usize,  // Default: 15
-    pub max_retries:           usize,  // Default: 3
-    pub confidence_threshold:  f64,    // Default: 0.4
-    pub reflect_every_n_steps: usize,  // Default: 5 (0 = disabled)
-    pub min_answer_length:     usize,  // Default: 20
+    pub max_steps:             usize,                  // Default: 15
+    pub max_retries:           usize,                  // Default: 3
+    pub confidence_threshold:  f64,                    // Default: 0.4
+    pub reflect_every_n_steps: usize,                  // Default: 5 (0 = disabled)
+    pub min_answer_length:     usize,                  // Default: 20
+    pub models:                HashMap<String, String>, // Default: empty
 }
 
 impl Default for AgentConfig { ... }  // uses the defaults above
@@ -207,28 +224,16 @@ impl AgentMemory {
 
 ```rust
 /// ToolFn type alias
-pub type ToolFn = Box<dyn Fn(&HashMap<String, serde_json::Value>) -> Result<String, String> + Send + Sync>;
+pub type ToolFn = Box<dyn Fn(&HashMap<String, Value>) -> Result<String, String> + Send + Sync>;
 
 impl ToolRegistry {
     pub fn new() -> Self
-
-    /// Register a tool.
-    pub fn register(
-        &mut self,
-        name:        impl Into<String>,
-        description: impl Into<String>,
-        schema:      serde_json::Value,
-        func:        ToolFn,
-    )
-
-    /// Execute a registered tool by name. Returns Err if not registered.
-    pub fn execute(&self, name: &str, args: &HashMap<String, serde_json::Value>) -> Result<String, String>
-
+    pub fn register(&mut self, name, description, schema: Value, func: ToolFn)
+    pub fn register_tool(&mut self, tool: Tool)  // ergonomic alternative
+    pub fn execute(&self, name: &str, args: &HashMap<String, Value>) -> Result<String, String>
     pub fn has(&self, name: &str) -> bool
     pub fn len(&self) -> usize
     pub fn is_empty(&self) -> bool
-
-    /// Returns all tool schemas for inclusion in LLM API calls.
     pub fn schemas(&self) -> Vec<ToolSchema>
 }
 
@@ -238,6 +243,23 @@ pub struct ToolSchema {
     pub description:  String,
     pub input_schema: serde_json::Value,
 }
+```
+
+### `Tool` (Builder)
+
+```rust
+impl Tool {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self
+    pub fn param(self, name, param_type, description) -> Self      // required parameter
+    pub fn param_opt(self, name, param_type, description) -> Self   // optional parameter
+    pub fn call<F>(self, f: F) -> Self                             // attach implementation
+}
+
+// Usage:
+Tool::new("search", "Search the web")
+    .param("query", "string", "The search query")
+    .param_opt("limit", "integer", "Max results")
+    .call(|args| Ok("results".to_string()))
 ```
 
 ---
@@ -307,11 +329,22 @@ impl AnthropicCaller {
 
 ```rust
 impl MockLlmCaller {
-    pub fn new(responses: Vec<LlmResponse>) -> Self                   // responses consumed in order
-    pub fn call_count(&self) -> usize                                  // how many times called
-    pub fn model_for_call(&self, n: usize) -> Option<String>          // model string for nth call
+    pub fn new(responses: Vec<LlmResponse>) -> Self
+    pub fn call_count(&self) -> usize
+    pub fn model_for_call(&self, n: usize) -> Option<String>
 }
 // Implements LlmCaller directly (no wrapping needed)
+```
+
+### `RetryingLlmCaller`
+
+```rust
+impl RetryingLlmCaller {
+    /// Wrap any LlmCaller with retry. n = max retry attempts.
+    pub fn new(inner: Box<dyn LlmCaller>, max_retries: u32) -> Self
+}
+// Implements LlmCaller. Auth errors (401/403) are never retried.
+// Back-off: 1s → 2s → 4s → … cap 30s.
 ```
 
 ---
@@ -431,8 +464,10 @@ use agentsm::{
     HistoryEntry,
     ToolRegistry,
     ToolFn,
+    Tool,               // Tool builder
     LlmCaller,
     LlmCallerExt,
+    RetryingLlmCaller,  // retry wrapper
     TraceEntry,
     Trace,
 };

@@ -440,3 +440,186 @@ fn test_builder_requires_llm() {
         other => panic!("Expected BuildError, got: {:?}", other),
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 15: Tool builder produces a valid JSON Schema
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_tool_builder_produces_valid_schema() {
+    use agentsm::Tool;
+
+    let tool = Tool::new("search", "Search the web for information")
+        .param("query", "string", "The search query")
+        .param_opt("limit", "integer", "Max results to return")
+        .call(|args| {
+            let q = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+            Ok(format!("Results for '{}'", q))
+        });
+
+    // Register it via the ToolRegistry
+    let mut registry = ToolRegistry::new();
+    registry.register_tool(tool);
+
+    assert!(registry.has("search"), "Tool should be registered");
+    assert_eq!(registry.len(), 1);
+
+    // Validate the produced schema
+    let schemas = registry.schemas();
+    assert_eq!(schemas.len(), 1);
+    let schema = &schemas[0];
+
+    assert_eq!(schema.name, "search");
+    assert_eq!(schema.description, "Search the web for information");
+
+    let props = schema.input_schema["properties"].as_object().unwrap();
+    assert!(props.contains_key("query"), "Should have 'query' property");
+    assert!(props.contains_key("limit"), "Should have 'limit' property");
+    assert_eq!(props["query"]["type"], "string");
+    assert_eq!(props["limit"]["type"], "integer");
+
+    // Only 'query' should be required, not 'limit'
+    let required = schema.input_schema["required"].as_array().unwrap();
+    assert!(
+        required.iter().any(|v| v == "query"),
+        "query should be required"
+    );
+    assert!(
+        !required.iter().any(|v| v == "limit"),
+        "limit should NOT be required"
+    );
+
+    // Execute the tool
+    let args: HashMap<String, serde_json::Value> = [
+        ("query".to_string(), json!("Rust programming")),
+    ].into();
+    let result = registry.execute("search", &args);
+    assert!(result.is_ok());
+    assert!(result.unwrap().contains("Rust programming"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 16: Tool builder works with AgentBuilder::add_tool()
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_add_tool_with_builder() {
+    use agentsm::Tool;
+
+    let mock = make_mock_llm(vec![
+        make_tool_call_response("calculator"),
+        make_final_answer("The result of 2 + 2 is 4, which is a well-known fact."),
+    ]);
+
+    let mut engine = AgentBuilder::new("What is 2+2?")
+        .llm(Box::new(mock))
+        .add_tool(
+            Tool::new("calculator", "Evaluate math expressions")
+                .param("expression", "string", "The expression to evaluate")
+                .call(|args| {
+                    let expr = args.get("expression").and_then(|v| v.as_str()).unwrap_or("0");
+                    Ok(format!("Result: {} = 4", expr))
+                })
+        )
+        .build()
+        .expect("build should succeed");
+
+    let result = engine.run();
+    assert!(result.is_ok(), "Agent should complete: {:?}", result.err());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 17: RetryingLlmCaller recovers from transient errors
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_retry_recovers_after_transient_error() {
+    use agentsm::llm::MockLlmCaller;
+    use agentsm::RetryingLlmCaller;
+    use agentsm::llm::LlmCaller;
+
+    // Create a custom mock that fails twice, succeeds on third try
+    // We can't use MockLlmCaller directly for error simulation,
+    // so we implement a small inline caller via a shared counter.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct FailNTimesCaller {
+        fail_count: Arc<AtomicUsize>,
+        failures_left: usize,
+    }
+
+    impl LlmCaller for FailNTimesCaller {
+        fn call(
+            &self,
+            _memory: &AgentMemory,
+            _tools:  &ToolRegistry,
+            _model:  &str,
+        ) -> Result<LlmResponse, String> {
+            let count = self.fail_count.fetch_add(1, Ordering::SeqCst);
+            if count < self.failures_left {
+                Err(format!("HTTP 503 Service Unavailable (attempt {})", count + 1))
+            } else {
+                Ok(LlmResponse::FinalAnswer {
+                    content: "Successfully recovered after transient failures with a complete answer.".to_string(),
+                })
+            }
+        }
+    }
+
+    let counter = Arc::new(AtomicUsize::new(0));
+    let inner: Box<dyn LlmCaller> = Box::new(FailNTimesCaller {
+        fail_count: counter.clone(),
+        failures_left: 2,
+    });
+    let retrying = RetryingLlmCaller::new(inner, 3);
+
+    let memory = test_memory();
+    let tools  = test_tools();
+
+    let result = retrying.call(&memory, &tools, "test-model");
+    assert!(result.is_ok(), "Should recover after transient errors: {:?}", result);
+    assert_eq!(counter.load(Ordering::SeqCst), 3, "Should have been called 3 times total");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 18: RetryingLlmCaller fails fast on auth errors
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_retry_auth_error_fails_fast() {
+    use agentsm::RetryingLlmCaller;
+    use agentsm::llm::LlmCaller;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct AuthErrorCaller {
+        call_count: Arc<AtomicUsize>,
+    }
+
+    impl LlmCaller for AuthErrorCaller {
+        fn call(
+            &self,
+            _memory: &AgentMemory,
+            _tools:  &ToolRegistry,
+            _model:  &str,
+        ) -> Result<LlmResponse, String> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            Err("HTTP 401 Unauthorized - Invalid API key".to_string())
+        }
+    }
+
+    let counter = Arc::new(AtomicUsize::new(0));
+    let inner: Box<dyn LlmCaller> = Box::new(AuthErrorCaller {
+        call_count: counter.clone(),
+    });
+    let retrying = RetryingLlmCaller::new(inner, 5);
+
+    let memory = test_memory();
+    let tools  = test_tools();
+
+    let result = retrying.call(&memory, &tools, "test-model");
+    assert!(result.is_err(), "Auth errors should not be retried");
+    assert_eq!(counter.load(Ordering::SeqCst), 1, "Should only be called once — no retry");
+    assert!(result.unwrap_err().contains("401"));
+}

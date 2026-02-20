@@ -4,7 +4,47 @@ Tools are the agent's interface to the external world. Every capability the agen
 
 ---
 
-## Registering a Tool
+## Tool Builder (Recommended)
+
+The `Tool` builder provides a clean, schema-free API:
+
+```rust
+use agentsm::{AgentBuilder, Tool};
+
+AgentBuilder::new("task")
+    .openai("sk-...")
+    .model("gpt-4o")
+    .add_tool(
+        Tool::new("search", "Search the web for current information.")
+            .param("query", "string", "The search query")           // required
+            .param_opt("limit", "integer", "Max results (default 5)") // optional
+            .call(|args| {
+                let q = args["query"].as_str().unwrap_or("");
+                Ok(format!("Results for '{}': ...", q))
+            })
+    )
+    .add_tool(
+        Tool::new("calculator", "Evaluate mathematical expressions.")
+            .param("expression", "string", "Math expression like '137 * 48'")
+            .call(|args| {
+                let expr = args["expression"].as_str().unwrap_or("0");
+                Ok(format!("Result: {}", expr))
+            })
+    )
+    .build()?
+```
+
+**Key points:**
+- `.param()` → required parameter (included in JSON Schema `required` array)
+- `.param_opt()` → optional parameter
+- `.call()` → attaches the function, must be called last
+- `param_type` is a JSON Schema type string: `"string"`, `"integer"`, `"number"`, `"boolean"`, `"array"`, `"object"`
+
+---
+
+## Raw Tool Registration (Advanced)
+
+For full control over the JSON Schema, use the original `.tool()` method:
 
 Use `AgentBuilder::tool()` to register tools during construction:
 

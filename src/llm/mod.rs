@@ -6,10 +6,12 @@ use async_trait::async_trait;
 mod openai;
 mod anthropic;
 mod mock;
+mod retry;
 
 pub use openai::OpenAiCaller;
 pub use anthropic::AnthropicCaller;
 pub use mock::MockLlmCaller;
+pub use retry::RetryingLlmCaller;
 
 /// The single interface between the state machine and any LLM provider.
 ///

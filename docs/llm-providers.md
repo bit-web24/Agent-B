@@ -4,53 +4,51 @@
 
 ---
 
-## Trait Architecture
+## Provider Shortcuts (Recommended)
 
-```
-LlmCaller (sync, used by engine)
-    │
-    ├── Implemented directly by:
-    │     └── MockLlmCaller (for testing)
-    │
-    └── Implemented via SyncWrapper (LlmCallerExt) over:
-          └── AsyncLlmCaller (async)
-                ├── OpenAiCaller
-                └── AnthropicCaller
-```
-
-The engine uses `&dyn LlmCaller` (sync). Async callers are wrapped using:
+`AgentBuilder` has one-liner methods for the most common providers:
 
 ```rust
-let llm = Box::new(LlmCallerExt(OpenAiCaller::new()));
-//                 ^^^^^^^^^^^^ wraps AsyncLlmCaller → LlmCaller
+// OpenAI (reads OPENAI_API_KEY from env if empty string)
+AgentBuilder::new("task").openai("sk-...").model("gpt-4o")
+
+// Anthropic / Claude
+AgentBuilder::new("task").anthropic("sk-ant-...").model("claude-sonnet-4-6")
+
+// Groq (ultra-fast inference)
+AgentBuilder::new("task").groq("gsk_...").model("llama-3.3-70b-versatile")
+
+// Ollama (local, default http://localhost:11434/v1)
+AgentBuilder::new("task").ollama("").model("llama3.2")
+
+// Any OpenAI-compatible API (escape hatch)
+use agentsm::llm::{OpenAiCaller, LlmCallerExt};
+AgentBuilder::new("task")
+    .llm(Box::new(LlmCallerExt(OpenAiCaller::with_base_url(
+        "https://api.together.xyz/v1",
+        std::env::var("TOGETHER_API_KEY").unwrap(),
+    ))))
+    .model("meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo")
 ```
 
 ---
 
-## OpenAI Provider
+## Built-in Retry Policy
 
-### Standard OpenAI
-
-Uses `OPENAI_API_KEY` environment variable automatically:
+Transient provider errors (HTTP 429, 503, timeouts, `tool_use_failed`) are common. Enable automatic retry with exponential back-off:
 
 ```rust
-use agentsm::llm::{OpenAiCaller, LlmCallerExt};
-
-let llm = Box::new(LlmCallerExt(OpenAiCaller::new()));
+AgentBuilder::new("task")
+    .groq("gsk_...")
+    .model("llama-3.3-70b-versatile")
+    .retry_on_error(3)   // 1s → 2s → 4s back-off, up to 3 retries
 ```
 
-### Custom Base URL (OpenAI-Compatible APIs)
-
-Works with any API that follows the OpenAI chat completions format:
-
-```rust
-// Groq
-let llm = Box::new(LlmCallerExt(
-    OpenAiCaller::with_base_url(
-        "https://api.groq.com/openai/v1",
-        std::env::var("GROQ_API_KEY").unwrap(),
-    )
-));
+**Retry rules:**
+- Any `Err(String)` from the LLM caller is retried
+- **Auth errors are never retried** (401, 403, "unauthorized", "invalid api key")
+- Back-off: 1s → 2s → 4s → … capped at 30s
+- After all retries exhausted: `Err("LLM failed after N retries — last error: ...")`
 
 // Together AI
 let llm = Box::new(LlmCallerExt(
