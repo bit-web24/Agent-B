@@ -19,6 +19,6 @@ impl AgentState for IdleState {
             "task='{}' task_type='{}' max_steps={}",
             memory.task, memory.task_type, memory.config.max_steps
         ));
-        Event::Start
+        Event::start()
     }
 }

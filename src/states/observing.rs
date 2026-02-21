@@ -45,9 +45,9 @@ impl AgentState for ObservingState {
             memory.log("Observing", "NEEDS_REFLECTION", &format!(
                 "step={} interval={}", memory.step, reflect_interval
             ));
-            Event::NeedsReflection
+            Event::needs_reflection()
         } else {
-            Event::Continue
+            Event::r#continue()
         }
     }
 }

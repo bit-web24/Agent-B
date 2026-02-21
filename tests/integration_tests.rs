@@ -73,7 +73,7 @@ fn make_bare_engine(mock: MockLlmCaller) -> AgentEngine {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1: IdleState produces Event::Start → Planning
+// Test 1: IdleState produces Event::start() → Planning
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -85,12 +85,12 @@ fn test_idle_to_planning_transition() {
     let idle = IdleState;
     let event = idle.handle(&mut memory, &tools, &llm);
 
-    assert_eq!(event, Event::Start, "IdleState must emit Event::Start");
+    assert_eq!(event, Event::start(), "IdleState must emit Event::start()");
 
     // Verify the transition table maps (Idle, Start) → Planning
     let table = build_transition_table();
-    let next = table.get(&(State::Idle, Event::Start));
-    assert_eq!(next, Some(&State::Planning), "Idle + Start should transition to Planning");
+    let next = table.get(&(State::idle(), Event::start()));
+    assert_eq!(next, Some(&State::planning()), "Idle + Start should transition to Planning");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ fn test_planning_max_steps_guard() {
     let state = PlanningState;
     let event = state.handle(&mut memory, &tools, &llm);
 
-    assert_eq!(event, Event::MaxSteps, "PlanningState must return MaxSteps when step >= max_steps");
+    assert_eq!(event, Event::max_steps(), "PlanningState must return MaxSteps when step >= max_steps");
     assert!(memory.error.is_some(), "memory.error must be set on MaxSteps");
 }
 
@@ -164,7 +164,7 @@ fn test_acting_unknown_tool_is_failure_not_crash() {
     let state = ActingState;
     let event = state.handle(&mut memory, &tools, &llm);
 
-    assert_eq!(event, Event::ToolFailure, "Unknown tool must produce ToolFailure, not FatalError or panic");
+    assert_eq!(event, Event::tool_failure(), "Unknown tool must produce ToolFailure, not FatalError or panic");
     assert!(
         memory.last_observation.as_ref().map_or(false, |o| o.starts_with("ERROR:")),
         "last_observation must be prefixed with 'ERROR:'"
@@ -194,7 +194,7 @@ fn test_observing_triggers_reflection_at_step_5() {
     let state = ObservingState;
     let event = state.handle(&mut memory, &tools, &llm);
 
-    assert_eq!(event, Event::NeedsReflection, "ObservingState must emit NeedsReflection at step % interval == 0");
+    assert_eq!(event, Event::needs_reflection(), "ObservingState must emit NeedsReflection at step % interval == 0");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ fn test_observing_commits_to_history() {
     let state = ObservingState;
     let event = state.handle(&mut memory, &tools, &llm);
 
-    assert_eq!(event, Event::Continue, "ObservingState should return Continue between reflections");
+    assert_eq!(event, Event::r#continue(), "ObservingState should return Continue between reflections");
     assert_eq!(memory.history.len(), 1, "One HistoryEntry should be committed");
     assert_eq!(memory.history[0].tool.name, "search");
     assert!(memory.history[0].success, "Entry should be marked success");
@@ -267,7 +267,7 @@ fn test_full_run_reaches_done_state() {
 
     assert!(result.is_ok(), "Agent should complete: {:?}", result);
     assert_eq!(
-        engine.current_state(), &State::Done,
+        engine.current_state(), &State::done(),
         "Engine must be in Done state after successful completion"
     );
 }
@@ -290,13 +290,13 @@ fn test_invalid_transition_returns_error() {
     let state = PlanningState;
     let event = state.handle(&mut memory, &tools, &llm);
 
-    assert_eq!(event, Event::MaxSteps, "PlanningState must emit MaxSteps when step >= max_steps");
+    assert_eq!(event, Event::max_steps(), "PlanningState must emit MaxSteps when step >= max_steps");
     assert!(memory.error.is_some(), "memory.error must be set");
 
     // Also verify the transition table routes MaxSteps → Error
     let table = build_transition_table();
-    let next  = table.get(&(State::Planning, Event::MaxSteps));
-    assert_eq!(next, Some(&State::Error), "MaxSteps should transition to Error state");
+    let next  = table.get(&(State::planning(), Event::max_steps()));
+    assert_eq!(next, Some(&State::error()), "MaxSteps should transition to Error state");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -411,7 +411,7 @@ fn test_agent_config_respected() {
     let state = PlanningState;
     let event = state.handle(&mut memory, &tools, &llm);
 
-    assert_eq!(event, Event::MaxSteps, "AgentConfig max_steps must be enforced by PlanningState");
+    assert_eq!(event, Event::max_steps(), "AgentConfig max_steps must be enforced by PlanningState");
     assert!(
         memory.error.as_ref().map_or(false, |e| e.contains("Max steps")),
         "memory.error should mention max steps, got: {:?}", memory.error
@@ -622,4 +622,199 @@ fn test_retry_auth_error_fails_fast() {
     assert!(result.is_err(), "Auth errors should not be retried");
     assert_eq!(counter.load(Ordering::SeqCst), 1, "Should only be called once — no retry");
     assert!(result.unwrap_err().contains("401"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 19: Custom state graph — user-defined states, events, and transitions
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_custom_state_graph() {
+    use agentsm::llm::LlmCaller;
+
+    /// A custom state that simulates "researching" work.
+    /// It logs a trace entry and emits a custom "ResearchDone" event.
+    struct ResearchingState;
+
+    impl AgentState for ResearchingState {
+        fn name(&self) -> &'static str { "Researching" }
+
+        fn handle(
+            &self,
+            memory: &mut AgentMemory,
+            _tools: &ToolRegistry,
+            _llm:   &dyn LlmCaller,
+        ) -> Event {
+            memory.log("Researching", "RESEARCH_COMPLETE", "Custom research work done");
+            // Emit a custom event
+            Event::new("ResearchDone")
+        }
+    }
+
+    /// A mock LLM that first returns a custom event to trigger research,
+    /// then returns a final answer.
+    struct ResearchTriggerLlm {
+        call_count: std::sync::atomic::AtomicUsize,
+    }
+
+    impl LlmCaller for ResearchTriggerLlm {
+        fn call(
+            &self,
+            _memory: &AgentMemory,
+            _tools:  &ToolRegistry,
+            _model:  &str,
+        ) -> Result<LlmResponse, String> {
+            let count = self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if count == 0 {
+                // First call: return a final answer that will be "too short"
+                // to force replanning. But we need a different approach —
+                // let's emit a tool call to a special "research" tool.
+                Ok(LlmResponse::FinalAnswer {
+                    content: "After thorough research, the answer to the question is 42.".to_string(),
+                })
+            } else {
+                Ok(LlmResponse::FinalAnswer {
+                    content: "Completed with research findings — the answer is definitely 42.".to_string(),
+                })
+            }
+        }
+    }
+
+    // Build agent with custom state graph:
+    //  Planning --NeedsResearch--> Researching --ResearchDone--> Planning
+    //
+    // We override Planning to emit "NeedsResearch" on the first call,
+    // then emit LlmFinalAnswer on the second.
+    struct CustomPlanningState {
+        call_count: std::sync::atomic::AtomicUsize,
+    }
+
+    impl AgentState for CustomPlanningState {
+        fn name(&self) -> &'static str { "Planning" }
+
+        fn handle(
+            &self,
+            memory: &mut AgentMemory,
+            _tools: &ToolRegistry,
+            _llm:   &dyn LlmCaller,
+        ) -> Event {
+            let count = self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            memory.step += 1;
+            memory.log("Planning", "STEP_START", &format!("step={}", memory.step));
+
+            if count == 0 {
+                // First call: emit custom event to trigger Researching state
+                memory.log("Planning", "NEEDS_RESEARCH", "Sending to research state");
+                Event::new("NeedsResearch")
+            } else {
+                // Second call (after research): emit final answer
+                memory.final_answer = Some("The answer after research is 42.".to_string());
+                memory.log("Planning", "LLM_FINAL_ANSWER", "Answering after research");
+                Event::llm_final_answer()
+            }
+        }
+    }
+
+    let mock_llm = ResearchTriggerLlm {
+        call_count: std::sync::atomic::AtomicUsize::new(0),
+    };
+
+    let mut engine = AgentBuilder::new("What is 42?")
+        .llm(Box::new(mock_llm))
+        // Register custom state
+        .state("Researching", Box::new(ResearchingState))
+        // Override default Planning with our custom one
+        .state("Planning", Box::new(CustomPlanningState {
+            call_count: std::sync::atomic::AtomicUsize::new(0),
+        }))
+        // Add custom transitions
+        .transition("Planning", "NeedsResearch", "Researching")
+        .transition("Researching", "ResearchDone", "Planning")
+        .build()
+        .expect("build with custom states should succeed");
+
+    let result = engine.run();
+    assert!(result.is_ok(), "Agent with custom states should complete: {:?}", result);
+    assert_eq!(engine.current_state(), &State::done());
+
+    // Verify the Researching state was actually visited
+    let research_entries = engine.trace().for_state("Researching");
+    assert!(
+        !research_entries.is_empty(),
+        "Trace must contain Researching state entries — the custom state was visited"
+    );
+
+    // Verify the custom event was recorded
+    let research_done: Vec<_> = engine.trace().entries()
+        .iter()
+        .filter(|e| e.event == "RESEARCH_COMPLETE")
+        .collect();
+    assert!(
+        !research_done.is_empty(),
+        "Trace must contain RESEARCH_COMPLETE event from custom state"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 20: Custom terminal state
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_custom_terminal_state() {
+    use agentsm::llm::LlmCaller;
+
+    /// A custom state that is terminal — the engine should exit here.
+    struct CustomDoneState;
+
+    impl AgentState for CustomDoneState {
+        fn name(&self) -> &'static str { "CustomDone" }
+
+        fn handle(
+            &self,
+            memory: &mut AgentMemory,
+            _tools: &ToolRegistry,
+            _llm:   &dyn LlmCaller,
+        ) -> Event {
+            memory.final_answer = Some("Custom terminal state reached!".to_string());
+            memory.log("CustomDone", "CUSTOM_COMPLETE", "Done via custom terminal");
+            Event::start() // never used — engine exits
+        }
+    }
+
+    /// Custom planning that immediately routes to CustomDone
+    struct ImmediateCustomDonePlanning;
+
+    impl AgentState for ImmediateCustomDonePlanning {
+        fn name(&self) -> &'static str { "Planning" }
+
+        fn handle(
+            &self,
+            memory: &mut AgentMemory,
+            _tools: &ToolRegistry,
+            _llm:   &dyn LlmCaller,
+        ) -> Event {
+            memory.step += 1;
+            memory.final_answer = Some("Routed to custom done!".to_string());
+            memory.log("Planning", "ROUTING", "Going to CustomDone");
+            Event::new("GoCustomDone")
+        }
+    }
+
+    let mock = make_mock_llm(vec![]);
+
+    let mut engine = AgentBuilder::new("test custom terminal")
+        .llm(Box::new(mock))
+        .state("Planning", Box::new(ImmediateCustomDonePlanning))
+        .state("CustomDone", Box::new(CustomDoneState))
+        .transition("Planning", "GoCustomDone", "CustomDone")
+        .terminal_state("CustomDone")
+        .build()
+        .expect("build should succeed");
+
+    let result = engine.run();
+    assert!(result.is_ok(), "Agent should complete via custom terminal state: {:?}", result);
+
+    let answer = result.unwrap();
+    assert!(answer.contains("custom done"), "Final answer should mention custom done");
+    assert_eq!(engine.current_state(), &State::new("CustomDone"));
 }

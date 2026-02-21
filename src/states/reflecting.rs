@@ -22,7 +22,7 @@ impl AgentState for ReflectingState {
         ));
 
         // Create summary of history
-        let history_json = serde_json::to_string_pretty(&memory.history)
+        let _history_json = serde_json::to_string_pretty(&memory.history)
             .unwrap_or_else(|_| "[]".to_string());
 
         let summary = format!(
@@ -49,6 +49,6 @@ impl AgentState for ReflectingState {
             "compressed to {} entries", memory.history.len()
         ));
 
-        Event::ReflectDone
+        Event::reflect_done()
     }
 }

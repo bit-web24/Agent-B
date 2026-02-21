@@ -18,6 +18,6 @@ impl AgentState for DoneState {
         let answer = memory.final_answer.as_deref().unwrap_or("[No answer]");
         let truncated: String = answer.chars().take(100).collect();
         memory.log("Done", "TASK_COMPLETE", &truncated);
-        Event::Start  // Will never be used — engine exits before re-entering
+        Event::start()  // Will never be used — engine exits before re-entering
     }
 }

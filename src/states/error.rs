@@ -19,6 +19,6 @@ impl AgentState for ErrorState {
         let error_msg = memory.error.clone()
             .unwrap_or_else(|| "Unknown error".to_string());
         memory.log("Error", "AGENT_FAILED", &error_msg);
-        Event::Start  // Will never be used — engine exits before re-entering
+        Event::start()  // Will never be used — engine exits before re-entering
     }
 }

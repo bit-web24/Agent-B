@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::engine::AgentEngine;
 use crate::error::AgentError;
 use crate::memory::AgentMemory;
@@ -9,24 +9,36 @@ use crate::states::{
     ObservingState, ReflectingState, DoneState, ErrorState,
 };
 use crate::transitions::build_transition_table;
-use crate::types::AgentConfig;
+use crate::types::{AgentConfig, State};
+use crate::events::Event;
 
 pub struct AgentBuilder {
-    memory:      AgentMemory,
-    tools:       ToolRegistry,
-    llm:         Option<Box<dyn LlmCaller>>,
-    config:      Option<AgentConfig>,
-    retry_count: Option<u32>,
+    memory:             AgentMemory,
+    tools:              ToolRegistry,
+    llm:                Option<Box<dyn LlmCaller>>,
+    config:             Option<AgentConfig>,
+    retry_count:        Option<u32>,
+    custom_handlers:    HashMap<String, Box<dyn AgentState>>,
+    custom_transitions: Vec<(State, Event, State)>,
+    terminal_states:    HashSet<String>,
 }
 
 impl AgentBuilder {
     pub fn new(task: impl Into<String>) -> Self {
+        // Default terminal states
+        let mut terminal = HashSet::new();
+        terminal.insert("Done".to_string());
+        terminal.insert("Error".to_string());
+
         Self {
-            memory:      AgentMemory::new(task),
-            tools:       ToolRegistry::new(),
-            llm:         None,
-            config:      None,
-            retry_count: None,
+            memory:             AgentMemory::new(task),
+            tools:              ToolRegistry::new(),
+            llm:                None,
+            config:             None,
+            retry_count:        None,
+            custom_handlers:    HashMap::new(),
+            custom_transitions: Vec::new(),
+            terminal_states:    terminal,
         }
     }
 
@@ -242,9 +254,84 @@ impl AgentBuilder {
         self.memory.blacklist_tool(name); self
     }
 
+    // ── Custom graph building (LangGraph-style) ──────────────────────────────
+
+    /// Register a custom state handler.
+    ///
+    /// The handler's `name()` method must return the same string you use
+    /// in `.transition()` calls. If the name matches a built-in state
+    /// (e.g. `"Planning"`), the custom handler **replaces** the default one.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use agentsm::AgentBuilder;
+    /// # struct ResearchingState;
+    /// # impl agentsm::states::AgentState for ResearchingState {
+    /// #   fn name(&self) -> &'static str { "Researching" }
+    /// #   fn handle(&self, _: &mut agentsm::AgentMemory, _: &agentsm::ToolRegistry, _: &dyn agentsm::LlmCaller) -> agentsm::Event { agentsm::Event::new("ResearchDone") }
+    /// # }
+    /// AgentBuilder::new("task")
+    ///     .openai("sk-...")
+    ///     .state("Researching", Box::new(ResearchingState));
+    /// ```
+    pub fn state(mut self, name: impl Into<String>, handler: Box<dyn AgentState>) -> Self {
+        self.custom_handlers.insert(name.into(), handler);
+        self
+    }
+
+    /// Add a transition edge: when the agent is in `from_state` and the
+    /// handler emits `on_event`, transition to `to_state`.
+    ///
+    /// If the `(from, event)` pair already exists in the default table,
+    /// the custom transition **overwrites** it.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use agentsm::AgentBuilder;
+    /// AgentBuilder::new("task")
+    ///     .openai("sk-...")
+    ///     .transition("Planning",    "NeedsResearch", "Researching")
+    ///     .transition("Researching", "ResearchDone",  "Planning");
+    /// ```
+    pub fn transition(
+        mut self,
+        from_state: impl Into<String>,
+        on_event:   impl Into<String>,
+        to_state:   impl Into<String>,
+    ) -> Self {
+        self.custom_transitions.push((
+            State::new(from_state),
+            Event::new(on_event),
+            State::new(to_state),
+        ));
+        self
+    }
+
+    /// Mark a state as terminal — the engine will exit when it reaches
+    /// this state.
+    ///
+    /// `"Done"` and `"Error"` are terminal by default. Use this to add
+    /// additional terminal states for custom graphs.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use agentsm::AgentBuilder;
+    /// AgentBuilder::new("task")
+    ///     .openai("sk-...")
+    ///     .terminal_state("CustomDone");
+    /// ```
+    pub fn terminal_state(mut self, name: impl Into<String>) -> Self {
+        self.terminal_states.insert(name.into());
+        self
+    }
+
     // ── Build ────────────────────────────────────────────────────────────────
 
-    /// Builds the AgentEngine with all default state handlers.
+    /// Builds the AgentEngine with all default state handlers,
+    /// plus any custom states, transitions, and terminal states.
     pub fn build(mut self) -> Result<AgentEngine, AgentError> {
         let mut llm = self.llm
             .ok_or_else(|| AgentError::BuildError("LLM caller is required. Use .openai(), .groq(), .ollama(), .anthropic(), or .llm()".to_string()))?;
@@ -259,21 +346,33 @@ impl AgentBuilder {
         }
 
         // Register default state handlers
-        let mut handlers: HashMap<&'static str, Box<dyn AgentState>> = HashMap::new();
-        handlers.insert("Idle",       Box::new(IdleState));
-        handlers.insert("Planning",   Box::new(PlanningState));
-        handlers.insert("Acting",     Box::new(ActingState));
-        handlers.insert("Observing",  Box::new(ObservingState));
-        handlers.insert("Reflecting", Box::new(ReflectingState));
-        handlers.insert("Done",       Box::new(DoneState));
-        handlers.insert("Error",      Box::new(ErrorState));
+        let mut handlers: HashMap<String, Box<dyn AgentState>> = HashMap::new();
+        handlers.insert("Idle".to_string(),       Box::new(IdleState));
+        handlers.insert("Planning".to_string(),   Box::new(PlanningState));
+        handlers.insert("Acting".to_string(),     Box::new(ActingState));
+        handlers.insert("Observing".to_string(),  Box::new(ObservingState));
+        handlers.insert("Reflecting".to_string(), Box::new(ReflectingState));
+        handlers.insert("Done".to_string(),       Box::new(DoneState));
+        handlers.insert("Error".to_string(),      Box::new(ErrorState));
+
+        // Merge custom handlers (overwriting defaults if same name)
+        for (name, handler) in self.custom_handlers {
+            handlers.insert(name, handler);
+        }
+
+        // Build transition table (defaults + custom)
+        let mut transitions = build_transition_table();
+        for (from, event, to) in self.custom_transitions {
+            transitions.insert((from, event), to);
+        }
 
         Ok(AgentEngine::new(
             self.memory,
             self.tools,
             llm,
-            build_transition_table(),
+            transitions,
             handlers,
+            self.terminal_states,
         ))
     }
 
@@ -281,7 +380,7 @@ impl AgentBuilder {
     /// Any entry in `extra_handlers` will *replace* the default handler for that state name.
     pub fn build_with_handlers(
         mut self,
-        extra_handlers: HashMap<&'static str, Box<dyn AgentState>>,
+        extra_handlers: HashMap<String, Box<dyn AgentState>>,
     ) -> Result<AgentEngine, AgentError> {
         let mut llm = self.llm
             .ok_or_else(|| AgentError::BuildError("LLM caller is required".to_string()))?;
@@ -295,26 +394,38 @@ impl AgentBuilder {
         }
 
         // Start with the default set of state handlers.
-        let mut handlers: HashMap<&'static str, Box<dyn AgentState>> = HashMap::new();
-        handlers.insert("Idle",       Box::new(IdleState));
-        handlers.insert("Planning",   Box::new(PlanningState));
-        handlers.insert("Acting",     Box::new(ActingState));
-        handlers.insert("Observing",  Box::new(ObservingState));
-        handlers.insert("Reflecting", Box::new(ReflectingState));
-        handlers.insert("Done",       Box::new(DoneState));
-        handlers.insert("Error",      Box::new(ErrorState));
+        let mut handlers: HashMap<String, Box<dyn AgentState>> = HashMap::new();
+        handlers.insert("Idle".to_string(),       Box::new(IdleState));
+        handlers.insert("Planning".to_string(),   Box::new(PlanningState));
+        handlers.insert("Acting".to_string(),     Box::new(ActingState));
+        handlers.insert("Observing".to_string(),  Box::new(ObservingState));
+        handlers.insert("Reflecting".to_string(), Box::new(ReflectingState));
+        handlers.insert("Done".to_string(),       Box::new(DoneState));
+        handlers.insert("Error".to_string(),      Box::new(ErrorState));
 
-        // Merge in any custom overrides — overwriting defaults of the same name.
+        // Merge custom handlers from .state() calls
+        for (name, handler) in self.custom_handlers {
+            handlers.insert(name, handler);
+        }
+
+        // Merge in extra_handlers (these take highest priority)
         for (key, handler) in extra_handlers {
             handlers.insert(key, handler);
+        }
+
+        // Build transition table (defaults + custom)
+        let mut transitions = build_transition_table();
+        for (from, event, to) in self.custom_transitions {
+            transitions.insert((from, event), to);
         }
 
         Ok(AgentEngine::new(
             self.memory,
             self.tools,
             llm,
-            build_transition_table(),
+            transitions,
             handlers,
+            self.terminal_states,
         ))
     }
 }

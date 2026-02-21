@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::states::AgentState;
 use crate::types::State;
 use crate::events::Event;
@@ -10,30 +10,33 @@ use crate::trace::Trace;
 use crate::error::AgentError;
 
 pub struct AgentEngine {
-    pub memory:     AgentMemory,
-    pub tools:      ToolRegistry,
-    pub llm:        Box<dyn LlmCaller>,
-    state:          State,
-    transitions:    TransitionTable,
-    handlers:       HashMap<&'static str, Box<dyn AgentState>>,
+    pub memory:          AgentMemory,
+    pub tools:           ToolRegistry,
+    pub llm:             Box<dyn LlmCaller>,
+    state:               State,
+    transitions:         TransitionTable,
+    handlers:            HashMap<String, Box<dyn AgentState>>,
+    terminal_states:     HashSet<String>,
 }
 
 impl AgentEngine {
     /// Creates a new engine. Prefer using AgentBuilder for ergonomic construction.
     pub fn new(
-        memory:      AgentMemory,
-        tools:       ToolRegistry,
-        llm:         Box<dyn LlmCaller>,
-        transitions: TransitionTable,
-        handlers:    HashMap<&'static str, Box<dyn AgentState>>,
+        memory:          AgentMemory,
+        tools:           ToolRegistry,
+        llm:             Box<dyn LlmCaller>,
+        transitions:     TransitionTable,
+        handlers:        HashMap<String, Box<dyn AgentState>>,
+        terminal_states: HashSet<String>,
     ) -> Self {
         Self {
             memory,
             tools,
             llm,
-            state: State::Idle,
+            state: State::idle(),
             transitions,
             handlers,
+            terminal_states,
         }
     }
 
@@ -52,15 +55,20 @@ impl AgentEngine {
             tracing::info!(state = %self.state, iteration = iterations, "agent loop tick");
 
             // Exit condition: terminal state
-            if self.state.is_terminal() {
-                return match self.state {
-                    State::Done  => Ok(self.memory.final_answer.clone()
-                        .unwrap_or_else(|| "[No answer produced]".to_string())),
-                    State::Error => Err(AgentError::AgentFailed(
+            if self.terminal_states.contains(self.state.as_str()) {
+                return if self.state == State::done() {
+                    Ok(self.memory.final_answer.clone()
+                        .unwrap_or_else(|| "[No answer produced]".to_string()))
+                } else if self.state == State::error() {
+                    Err(AgentError::AgentFailed(
                         self.memory.error.clone()
                             .unwrap_or_else(|| "Unknown error".to_string())
-                    )),
-                    _ => unreachable!(),
+                    ))
+                } else {
+                    // Custom terminal state — return the final answer if available,
+                    // otherwise return an informational message.
+                    Ok(self.memory.final_answer.clone()
+                        .unwrap_or_else(|| format!("[Terminated in state: {}]", self.state)))
                 };
             }
 
@@ -84,7 +92,7 @@ impl AgentEngine {
                 })?;
 
             tracing::info!(from = %self.state, event = %event, to = %next_state, "transition");
-            println!("  ══ {} --{}--> {} ══", self.state, event, next_state);
+            println!("  ══ {} --{}-->{} ══", self.state, event, next_state);
 
             self.state = next_state;
         }

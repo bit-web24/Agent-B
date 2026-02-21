@@ -1,43 +1,51 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// All possible agent states.
-/// Adding a variant here will cause compile errors in every
-/// non-exhaustive match — intentional, by design.
+/// A named state in the agent's state machine.
+///
+/// States are identified by their string name. The library ships with
+/// seven well-known constants (`State::IDLE`, `State::PLANNING`, …)
+/// but users can define any number of custom states.
+///
+/// # Defining a Custom State
+///
+/// ```
+/// use agentsm::State;
+/// let researching = State::new("Researching");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum State {
-    Idle,
-    Planning,
-    Acting,
-    Observing,
-    Reflecting,
-    Done,
-    Error,
-}
+pub struct State(pub String);
 
 impl State {
-    /// Returns true if the state is terminal (loop must exit)
-    pub fn is_terminal(&self) -> bool {
-        matches!(self, State::Done | State::Error)
+    /// Create a new state with the given name.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
     }
 
-    /// Returns the static string name — used for handler map lookup
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            State::Idle       => "Idle",
-            State::Planning   => "Planning",
-            State::Acting     => "Acting",
-            State::Observing  => "Observing",
-            State::Reflecting => "Reflecting",
-            State::Done       => "Done",
-            State::Error      => "Error",
-        }
+    /// Returns the string name of this state.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
+
+    /// Returns true if this is one of the default terminal states
+    /// (`"Done"` or `"Error"`).
+    pub fn is_terminal(&self) -> bool {
+        self.0 == "Done" || self.0 == "Error"
+    }
+
+    // ── Well-known built-in state constructors ──────────────────────────
+    pub fn idle()       -> Self { Self::new("Idle") }
+    pub fn planning()   -> Self { Self::new("Planning") }
+    pub fn acting()     -> Self { Self::new("Acting") }
+    pub fn observing()  -> Self { Self::new("Observing") }
+    pub fn reflecting() -> Self { Self::new("Reflecting") }
+    pub fn done()       -> Self { Self::new("Done") }
+    pub fn error()      -> Self { Self::new("Error") }
 }
 
 impl std::fmt::Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
+        write!(f, "{}", self.0)
     }
 }
 

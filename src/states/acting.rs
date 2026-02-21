@@ -21,7 +21,7 @@ impl AgentState for ActingState {
             None => {
                 memory.error = Some("ActingState called with no current_tool_call".to_string());
                 memory.log("Acting", "FATAL_ERROR", "No current_tool_call");
-                return Event::FatalError;
+                return Event::fatal_error();
             }
         };
 
@@ -35,13 +35,13 @@ impl AgentState for ActingState {
                 let observation = format!("SUCCESS: {}", result);
                 memory.last_observation = Some(observation.clone());
                 memory.log("Acting", "TOOL_SUCCESS", &result.chars().take(100).collect::<String>());
-                Event::ToolSuccess
+                Event::tool_success()
             }
             Err(err) => {
                 let observation = format!("ERROR: {}", err);
                 memory.last_observation = Some(observation.clone());
                 memory.log("Acting", "TOOL_FAILURE", &err);
-                Event::ToolFailure
+                Event::tool_failure()
             }
         }
     }

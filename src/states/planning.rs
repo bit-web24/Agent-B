@@ -13,7 +13,7 @@ impl PlanningState {
     /// Priority:
     ///   1. `memory.config.models[task_type]`  — exact task-type match
     ///   2. `memory.config.models["default"]`  — generic fallback
-    ///   3. `""`                               — let the LLmCaller use its own default
+    ///   3. `""`                               — let the LlmCaller use its own default
     fn resolve_model<'a>(&self, memory: &'a AgentMemory) -> &'a str {
         let models = &memory.config.models;
         models
@@ -29,7 +29,7 @@ impl PlanningState {
             memory.log("Planning", "TOOL_BLACKLISTED", &format!(
                 "Requested blacklisted tool: {}", tool.name
             ));
-            return Event::ToolBlacklisted;
+            return Event::tool_blacklisted();
         }
 
         // Check confidence
@@ -45,7 +45,7 @@ impl PlanningState {
                 memory.retry_count,
                 memory.config.max_retries
             ));
-            return Event::LowConfidence;
+            return Event::low_confidence();
         }
 
         // Accept tool call
@@ -54,7 +54,7 @@ impl PlanningState {
         memory.log("Planning", "LLM_TOOL_CALL", &format!(
             "tool='{}' confidence={:.2}", tool.name, confidence
         ));
-        Event::LlmToolCall
+        Event::llm_tool_call()
     }
 
     fn handle_final_answer(&self, memory: &mut AgentMemory, content: String) -> Event {
@@ -63,13 +63,13 @@ impl PlanningState {
             memory.log("Planning", "ANSWER_TOO_SHORT", &format!(
                 "len={} min={}", content.len(), memory.config.min_answer_length
             ));
-            return Event::AnswerTooShort;
+            return Event::answer_too_short();
         }
 
         // Accept answer
         memory.final_answer = Some(content.clone());
         memory.log("Planning", "LLM_FINAL_ANSWER", &content.chars().take(100).collect::<String>());
-        Event::LlmFinalAnswer
+        Event::llm_final_answer()
     }
 }
 
@@ -86,7 +86,7 @@ impl AgentState for PlanningState {
         if memory.step >= memory.config.max_steps {
             memory.error = Some(format!("Max steps {} exceeded", memory.config.max_steps));
             memory.log("Planning", "MAX_STEPS", &format!("step={}", memory.step));
-            return Event::MaxSteps;
+            return Event::max_steps();
         }
 
         // 2. Increment step
@@ -101,7 +101,7 @@ impl AgentState for PlanningState {
             Err(err) => {
                 memory.error = Some(format!("LLM error: {}", err));
                 memory.log("Planning", "LLM_ERROR", &err);
-                Event::FatalError
+                Event::fatal_error()
             }
             Ok(LlmResponse::ToolCall { tool, confidence }) => {
                 self.handle_tool_call(memory, tool, confidence)
