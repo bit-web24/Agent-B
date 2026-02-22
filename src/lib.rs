@@ -9,6 +9,7 @@ pub mod error;
 pub mod builder;
 pub mod states;
 pub mod llm;
+pub mod mcp;
 
 // Convenience re-exports at crate root
 pub use builder::AgentBuilder;

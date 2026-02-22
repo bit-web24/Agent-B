@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use crate::engine::AgentEngine;
 use crate::error::AgentError;
 use crate::memory::AgentMemory;
@@ -11,6 +12,7 @@ use crate::states::{
 use crate::transitions::build_transition_table;
 use crate::types::{AgentConfig, State};
 use crate::events::Event;
+use crate::mcp::{McpClient, bridge_mcp_tool};
 
 pub struct AgentBuilder {
     memory:             AgentMemory,
@@ -247,6 +249,36 @@ impl AgentBuilder {
     /// ```
     pub fn add_tool(mut self, tool: Tool) -> Self {
         self.tools.register_tool(tool);
+        self
+    }
+
+    /// Register an MCP server and all its tools.
+    ///
+    /// The `command` and `args` are used to spawn the MCP server process.
+    /// This method blocks synchronously while initializing the bridge.
+    pub fn mcp_server(mut self, command: impl Into<String>, args: &[String]) -> Self {
+        let cmd = command.into();
+        let args = args.to_vec();
+
+        // Use block_in_place to handle the async MCP client initialization
+        tokio::task::block_in_place(|| {
+            let handle = tokio::runtime::Handle::current();
+            let client = handle.block_on(McpClient::new(&cmd, &args))
+                .expect("Failed to initialize MCP client");
+
+            let tools = handle.block_on(client.list_tools())
+                .expect("Failed to list MCP tools");
+
+            for mcp_tool in tools {
+                let name = mcp_tool.name.clone();
+                let desc = mcp_tool.description.clone().unwrap_or_default();
+                let schema = mcp_tool.input_schema.clone().unwrap_or_default();
+                let func = bridge_mcp_tool(Arc::clone(&client), name.clone());
+
+                self.tools.register(name, desc, schema, func);
+            }
+        });
+
         self
     }
 
