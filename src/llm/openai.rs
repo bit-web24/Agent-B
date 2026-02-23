@@ -11,6 +11,8 @@ use async_openai::{
     Client,
 };
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream::BoxStream;
 use crate::llm::AsyncLlmCaller;
 use crate::memory::AgentMemory;
 use crate::tools::ToolRegistry;
@@ -112,5 +114,101 @@ impl AsyncLlmCaller for OpenAiCaller {
             .ok_or("No content in OpenAI response")?;
 
         Ok(LlmResponse::FinalAnswer { content })
+    }
+
+    fn call_stream_async<'a>(
+        &'a self,
+        memory: &'a AgentMemory,
+        tools:  &'a ToolRegistry,
+        model:  &'a str,
+    ) -> BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
+        use futures::{StreamExt, stream};
+        let messages_json = memory.build_messages();
+        let messages: Vec<ChatCompletionRequestMessage> =
+            match serde_json::from_value(serde_json::Value::Array(messages_json)) {
+                Ok(m) => m,
+                Err(e) => return stream::once(async move { Err(format!("Failed to build messages: {}", e)) }).boxed(),
+            };
+
+        let oai_tools = Self::build_tools(tools);
+        let mut request_builder = CreateChatCompletionRequestArgs::default();
+        request_builder.model(model).messages(messages).stream(true);
+
+        if !oai_tools.is_empty() {
+            request_builder.tools(oai_tools);
+        }
+
+        let request = match request_builder.build() {
+            Ok(r) => r,
+            Err(e) => return stream::once(async move { Err(format!("Failed to build request: {}", e)) }).boxed(),
+        };
+
+        let client = self.client.clone();
+        
+        let s = stream::once(async move {
+            client.chat().create_stream(request).await
+                .map_err(|e| format!("OpenAI API error: {}", e))
+        })
+        .flat_map(|res| {
+            match res {
+                Ok(stream) => {
+                    let mut accumulated_content = String::new();
+                    let mut accumulated_tool_call_name = None;
+                    let mut accumulated_tool_call_args = String::new();
+
+                    stream.map(move |res| {
+                        let res = res.map_err(|e| format!("OpenAI stream error: {}", e))?;
+                        let choice = res.choices.into_iter().next().ok_or("Empty choice in stream")?;
+                        let delta = choice.delta;
+
+                        if let Some(tool_calls) = delta.tool_calls {
+                            if let Some(tc) = tool_calls.into_iter().next() {
+                                if let Some(func) = tc.function {
+                                    if let Some(name) = func.name {
+                                        accumulated_tool_call_name = Some(name);
+                                    }
+                                    if let Some(args) = func.arguments {
+                                        accumulated_tool_call_args.push_str(&args);
+                                    }
+                                }
+                                return Ok(crate::types::LlmStreamChunk::ToolCallDelta {
+                                    name: accumulated_tool_call_name.clone(),
+                                    args_json: accumulated_tool_call_args.clone(),
+                                });
+                            }
+                        }
+
+                        if let Some(content) = delta.content {
+                            accumulated_content.push_str(&content);
+                            return Ok(crate::types::LlmStreamChunk::Content(content));
+                        }
+
+                        if let Some(_reason) = choice.finish_reason {
+                            if !accumulated_tool_call_args.is_empty() {
+                                 let name = accumulated_tool_call_name.clone().unwrap_or_default();
+                                 let args: HashMap<String, serde_json::Value> = serde_json::from_str(&accumulated_tool_call_args)
+                                    .map_err(|e| format!("Failed to parse tool args: {}", e))?;
+                                 return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::ToolCall {
+                                     tool: ToolCall { name, args },
+                                     confidence: 1.0,
+                                 }));
+                            } else if !accumulated_content.is_empty() {
+                                return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::FinalAnswer { content: accumulated_content.clone() }));
+                            }
+                        }
+
+                        Err("SKIP".to_string())
+                    })
+                    .filter(|res| futures::future::ready(match res {
+                        Ok(_) => true,
+                        Err(e) => e != "SKIP",
+                    }))
+                    .boxed()
+                }
+                Err(e) => stream::once(async move { Err(e) }).boxed(),
+            }
+        });
+
+        s.boxed()
     }
 }

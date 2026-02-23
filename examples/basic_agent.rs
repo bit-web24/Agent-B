@@ -9,7 +9,7 @@
 //! ```
 
 use agentsm::AgentBuilder;
-use agentsm::llm::{OpenAiCaller, LlmCallerExt};
+use agentsm::llm::OpenAiCaller;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     println!("=== agentsm-rs Basic Agent Example ===\n");
 
     // Build an OpenAI LLM caller (reads OPENAI_API_KEY from environment)
-    let llm = Box::new(LlmCallerExt(OpenAiCaller::new()));
+    let llm = Box::new(OpenAiCaller::new());
 
     let mut engine = AgentBuilder::new(
             "What is the capital of France and what is its population?"
@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
 
     // Run the agent to completion
-    match engine.run() {
+    match engine.run().await {
         Ok(answer) => {
             println!("\n╔══════════════════════╗");
             println!("║    FINAL ANSWER      ║");

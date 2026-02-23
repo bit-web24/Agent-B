@@ -183,9 +183,29 @@ Implement `AsyncLlmCaller` for your provider:
 use agentsm::llm::{AsyncLlmCaller, LlmCallerExt};
 use agentsm::memory::AgentMemory;
 use agentsm::tools::ToolRegistry;
-use agentsm::types::LlmResponse;
+use agentsm::types::{LlmResponse, LlmStreamChunk};
 use async_trait::async_trait;
+use futures::stream::BoxStream;
 
+#[async_trait]
+pub trait AsyncLlmCaller: Send + Sync {
+    async fn call_async(
+        &self,
+        memory: &AgentMemory,
+        tools:  &ToolRegistry,
+        model:  &str,
+    ) -> Result<LlmResponse, String>;
+
+    fn call_stream_async<'a>(
+        &'a self,
+        memory: &'a AgentMemory,
+        tools:  &'a ToolRegistry,
+        model:  &'a str,
+    ) -> BoxStream<'a, Result<LlmStreamChunk, String>>;
+}
+```
+
+```rust
 pub struct MyCustomCaller {
     client: reqwest::Client,
     api_key: String,

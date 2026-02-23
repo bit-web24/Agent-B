@@ -1,7 +1,9 @@
-use crate::events::Event;
+use crate::llm::AsyncLlmCaller;
+use crate::types::{AgentOutput, State};
 use crate::memory::AgentMemory;
 use crate::tools::ToolRegistry;
-use crate::llm::LlmCaller;
+use crate::events::Event;
+use async_trait::async_trait;
 
 mod idle;
 mod planning;
@@ -33,17 +35,22 @@ pub use error::ErrorState;
 ///    (e.g., no handler registered, memory corrupted).
 /// 6. Always call `memory.log()` at least once per handle() call.
 ///
+#[async_trait]
 pub trait AgentState: Send + Sync {
     /// Returns the unique string name of this state.
     /// Must match the key used in the engine's handler map.
     fn name(&self) -> &'static str;
 
-    /// Execute this state's logic. Returns the Event that drives
+    /// Execute this state's logic asynchronously. Returns the Event that drives
     /// the next transition lookup in the transition table.
-    fn handle(
+    ///
+    /// If `output_tx` is provided, the state should emit `AgentOutput` events
+    /// (tokens, tool calls, etc.) to it.
+    async fn handle(
         &self,
-        memory: &mut AgentMemory,
-        tools:  &ToolRegistry,
-        llm:    &dyn LlmCaller,
+        memory:    &mut AgentMemory,
+        tools:     &ToolRegistry,
+        llm:       &dyn AsyncLlmCaller,
+        output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
     ) -> Event;
 }

@@ -1,7 +1,8 @@
 use crate::memory::AgentMemory;
 use crate::tools::ToolRegistry;
-use crate::types::LlmResponse;
+use crate::types::{LlmResponse, LlmStreamChunk};
 use async_trait::async_trait;
+use futures::stream::BoxStream;
 
 mod openai;
 mod anthropic;
@@ -44,6 +45,14 @@ pub trait AsyncLlmCaller: Send + Sync {
         tools:  &ToolRegistry,
         model:  &str,
     ) -> Result<LlmResponse, String>;
+
+    /// Asynchronously streams chunks from the LLM.
+    fn call_stream_async<'a>(
+        &'a self,
+        memory: &'a AgentMemory,
+        tools:  &'a ToolRegistry,
+        model:  &'a str,
+    ) -> BoxStream<'a, Result<LlmStreamChunk, String>>;
 }
 
 /// Extension trait: wraps an AsyncLlmCaller into a sync LlmCaller

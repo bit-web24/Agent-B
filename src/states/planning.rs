@@ -2,8 +2,10 @@ use crate::states::AgentState;
 use crate::events::Event;
 use crate::memory::AgentMemory;
 use crate::tools::ToolRegistry;
-use crate::llm::LlmCaller;
-use crate::types::{LlmResponse, ToolCall};
+use crate::llm::AsyncLlmCaller;
+use crate::types::{LlmResponse, ToolCall, AgentOutput, LlmStreamChunk, State};
+use async_trait::async_trait;
+use futures::StreamExt;
 
 pub struct PlanningState;
 
@@ -73,15 +75,21 @@ impl PlanningState {
     }
 }
 
+#[async_trait]
 impl AgentState for PlanningState {
     fn name(&self) -> &'static str { "Planning" }
 
-    fn handle(
+    async fn handle(
         &self,
-        memory: &mut AgentMemory,
-        tools:  &ToolRegistry,
-        llm:    &dyn LlmCaller,
+        memory:    &mut AgentMemory,
+        tools:     &ToolRegistry,
+        llm:       &dyn AsyncLlmCaller,
+        output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
     ) -> Event {
+        if let Some(tx) = output_tx {
+            let _ = tx.send(AgentOutput::StateStarted(State::planning()));
+        }
+
         // 1. Guard: max steps
         if memory.step >= memory.config.max_steps {
             memory.error = Some(format!("Max steps {} exceeded", memory.config.max_steps));
@@ -94,20 +102,55 @@ impl AgentState for PlanningState {
         memory.log("Planning", "STEP_START", &format!("step={}/{}", memory.step, memory.config.max_steps));
 
         // 3. Resolve model
-        let model = self.resolve_model(memory);
+        let model = self.resolve_model(memory).to_string();
 
-        // 4. Call LLM
-        match llm.call(memory, tools, model) {
-            Err(err) => {
-                memory.error = Some(format!("LLM error: {}", err));
-                memory.log("Planning", "LLM_ERROR", &err);
-                Event::fatal_error()
+        // 4. Call LLM with streaming
+        let mut stream = llm.call_stream_async(memory, tools, &model);
+        let mut final_response = None;
+        let mut stream_error = None;
+
+        while let Some(res) = stream.next().await {
+            match res {
+                Ok(LlmStreamChunk::Content(token)) => {
+                    if let Some(tx) = output_tx {
+                        let _ = tx.send(AgentOutput::LlmToken(token));
+                    }
+                }
+                Ok(LlmStreamChunk::ToolCallDelta { name, args_json }) => {
+                    if let Some(tx) = output_tx {
+                        let _ = tx.send(AgentOutput::ToolCallDelta { name, args_json });
+                    }
+                }
+                Ok(LlmStreamChunk::Done(resp)) => {
+                    final_response = Some(resp);
+                }
+                Err(err) => {
+                    stream_error = Some(err);
+                    break;
+                }
             }
-            Ok(LlmResponse::ToolCall { tool, confidence }) => {
+        }
+
+        // Drop the stream before borrowing memory mutably again
+        drop(stream);
+
+        if let Some(err) = stream_error {
+            memory.error = Some(format!("LLM streaming error: {}", err));
+            memory.log("Planning", "LLM_ERROR", &err);
+            return Event::fatal_error();
+        }
+
+        match final_response {
+            Some(LlmResponse::ToolCall { tool, confidence }) => {
                 self.handle_tool_call(memory, tool, confidence)
             }
-            Ok(LlmResponse::FinalAnswer { content }) => {
+            Some(LlmResponse::FinalAnswer { content }) => {
                 self.handle_final_answer(memory, content)
+            }
+            None => {
+                memory.error = Some("LLM stream ended without Done chunk".to_string());
+                memory.log("Planning", "LLM_ERROR", "End of stream without response");
+                Event::fatal_error()
             }
         }
     }

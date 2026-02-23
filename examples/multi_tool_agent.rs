@@ -9,7 +9,7 @@
 //! ```
 
 use agentsm::AgentBuilder;
-use agentsm::llm::{OpenAiCaller, LlmCallerExt};
+use agentsm::llm::OpenAiCaller;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
     println!("=== agentsm-rs Multi-Tool Agent Example ===\n");
     println!("Task: Calculate 137 * 48 and then find today's weather in London.\n");
 
-    let llm = Box::new(LlmCallerExt(OpenAiCaller::new()));
+    let llm = Box::new(OpenAiCaller::new());
 
 
     let mut engine = AgentBuilder::new(
@@ -115,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
         .blacklist_tool("search")
         .build()?;
 
-    match engine.run() {
+    match engine.run().await {
         Ok(answer) => {
             println!("\n╔══════════════════════╗");
             println!("║    FINAL ANSWER      ║");

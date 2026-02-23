@@ -79,6 +79,51 @@ pub enum LlmResponse {
     },
 }
 
+/// A chunk of streaming output from an LLM.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LlmStreamChunk {
+    /// A piece of text content
+    Content(String),
+    /// Partial tool call arguments (accumulated)
+    ToolCallDelta {
+        name: Option<String>,
+        args_json: String,
+    },
+    /// LLM finished streaming and returned a full response
+    Done(LlmResponse),
+}
+
+/// High-level events emitted by the Agent during streaming execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AgentOutput {
+    /// A new state has started execution
+    StateStarted(State),
+    /// A token/chunk of text from the LLM
+    LlmToken(String),
+    /// A chunk of tool call arguments
+    ToolCallDelta {
+        name: Option<String>,
+        args_json: String,
+    },
+    /// A tool call is being initiated (fully parsed)
+    ToolCallStarted {
+        name: String,
+        args: HashMap<String, serde_json::Value>,
+    },
+    /// A tool call has completed
+    ToolCallFinished {
+        name:    String,
+        result:  String,
+        success: bool,
+    },
+    /// A generic action or progress message
+    Action(String),
+    /// The agent has produced a final answer
+    FinalAnswer(String),
+    /// An error occurred during execution
+    Error(String),
+}
+
 /// Configuration for the agent's planning behavior.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {

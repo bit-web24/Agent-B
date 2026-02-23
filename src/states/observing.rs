@@ -2,20 +2,26 @@ use crate::states::AgentState;
 use crate::events::Event;
 use crate::memory::AgentMemory;
 use crate::tools::ToolRegistry;
-use crate::llm::LlmCaller;
-use crate::types::HistoryEntry;
+use crate::llm::AsyncLlmCaller;
+use crate::types::{AgentOutput, HistoryEntry, State};
+use async_trait::async_trait;
 
 pub struct ObservingState;
 
+#[async_trait]
 impl AgentState for ObservingState {
     fn name(&self) -> &'static str { "Observing" }
 
-    fn handle(
+    async fn handle(
         &self,
-        memory: &mut AgentMemory,
-        _tools: &ToolRegistry,
-        _llm:   &dyn LlmCaller,
+        memory:    &mut AgentMemory,
+        _tools:    &ToolRegistry,
+        _llm:      &dyn AsyncLlmCaller,
+        output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
     ) -> Event {
+        if let Some(tx) = output_tx {
+            let _ = tx.send(AgentOutput::StateStarted(State::observing()));
+        }
         // Commit tool call and observation to history
         let tool_call = memory.current_tool_call.take();
         let observation = memory.last_observation.take();

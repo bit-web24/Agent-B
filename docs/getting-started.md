@@ -45,8 +45,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .build()?;
 
-    // Run to completion
-    match engine.run() {
+    // Run to completion (now async)
+    match engine.run().await {
         Ok(answer) => println!("Answer: {}", answer),
         Err(e)     => eprintln!("Failed: {}", e),
     }
@@ -105,10 +105,10 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     let mut engine = AgentBuilder::new("Your task here")
-        .llm(Box::new(LlmCallerExt(OpenAiCaller::new())))
+        .llm(Box::new(OpenAiCaller::new()))
         .build()?;
 
-    match engine.run() {
+    match engine.run().await {
         Ok(answer) => println!("{}", answer),
         Err(e)     => eprintln!("{}", e),
     }

@@ -10,7 +10,7 @@
 //! ```
 
 use agentsm::AgentBuilder;
-use agentsm::llm::{AnthropicCaller, LlmCallerExt};
+use agentsm::llm::AnthropicCaller;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -25,8 +25,8 @@ async fn main() -> anyhow::Result<()> {
     let anthropic = AnthropicCaller::from_env()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    // Wrap the async Anthropic caller into a sync LlmCaller for the engine
-    let llm = Box::new(LlmCallerExt(anthropic));
+    // Use the Anthropic caller directly (it implements AsyncLlmCaller)
+    let llm = Box::new(anthropic);
 
     let mut engine = AgentBuilder::new(
             "What are the key design principles of the Rust programming language, \
@@ -109,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .build()?;
 
-    match engine.run() {
+    match engine.run().await {
         Ok(answer) => {
             println!("\n╔═══════════════════════════════════════╗");
             println!("║           FINAL ANSWER                ║");

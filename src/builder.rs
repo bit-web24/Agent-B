@@ -4,7 +4,7 @@ use crate::engine::AgentEngine;
 use crate::error::AgentError;
 use crate::memory::AgentMemory;
 use crate::tools::{ToolRegistry, ToolFn, Tool};
-use crate::llm::{LlmCaller, LlmCallerExt, OpenAiCaller, AnthropicCaller, RetryingLlmCaller};
+use crate::llm::{AsyncLlmCaller, OpenAiCaller, AnthropicCaller, RetryingLlmCaller};
 use crate::states::{
     AgentState, IdleState, PlanningState, ActingState,
     ObservingState, ReflectingState, DoneState, ErrorState,
@@ -17,7 +17,7 @@ use crate::mcp::{McpClient, bridge_mcp_tool};
 pub struct AgentBuilder {
     memory:             AgentMemory,
     tools:              ToolRegistry,
-    llm:                Option<Box<dyn LlmCaller>>,
+    llm:                Option<Box<dyn AsyncLlmCaller>>,
     config:             Option<AgentConfig>,
     retry_count:        Option<u32>,
     custom_handlers:    HashMap<String, Box<dyn AgentState>>,
@@ -55,9 +55,7 @@ impl AgentBuilder {
     // ── LLM provider setters ──────────────────────────────────────────────────
 
     /// Set the LLM caller explicitly.
-    ///
-    /// The escape-hatch for any provider not covered by the convenience methods.
-    pub fn llm(mut self, llm: Box<dyn LlmCaller>) -> Self {
+    pub fn llm(mut self, llm: Box<dyn AsyncLlmCaller>) -> Self {
         self.llm = Some(llm); self
     }
 
@@ -78,7 +76,7 @@ impl AgentBuilder {
         } else {
             OpenAiCaller::with_base_url("https://api.openai.com/v1", key)
         };
-        self.llm = Some(Box::new(LlmCallerExt(caller)));
+        self.llm = Some(Box::new(caller));
         self
     }
 
@@ -96,9 +94,9 @@ impl AgentBuilder {
     pub fn groq(mut self, api_key: impl Into<String>) -> Self {
         let caller = OpenAiCaller::with_base_url(
             "https://api.groq.com/openai/v1",
-            api_key,
+            api_key.into(),
         );
-        self.llm = Some(Box::new(LlmCallerExt(caller)));
+        self.llm = Some(Box::new(caller));
         self
     }
 
@@ -119,7 +117,7 @@ impl AgentBuilder {
             if s.is_empty() { "http://localhost:11434/v1".to_string() } else { s }
         };
         let caller = OpenAiCaller::with_base_url(url, "ollama");
-        self.llm = Some(Box::new(LlmCallerExt(caller)));
+        self.llm = Some(Box::new(caller));
         self
     }
 
@@ -140,10 +138,8 @@ impl AgentBuilder {
         } else {
             Ok(AnthropicCaller::new(key))
         };
-        // Store error for build() to surface — we can't return Result here
-        match result {
-            Ok(caller) => self.llm = Some(Box::new(LlmCallerExt(caller))),
-            Err(_) => {}  // will fail at build() with "LLM caller is required"
+        if let Ok(caller) = result {
+            self.llm = Some(Box::new(caller));
         }
         self
     }

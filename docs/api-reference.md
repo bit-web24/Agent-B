@@ -23,50 +23,13 @@ impl AgentBuilder {
 
     // ── Provider shortcuts ───────────────────────────────────────────────
 
-    /// Set the LLM caller explicitly (escape hatch for custom providers).
-    pub fn llm(self, llm: Box<dyn LlmCaller>) -> Self
+    /// Set the LLM caller explicitly.
+    pub fn llm(self, llm: Box<dyn AsyncLlmCaller>) -> Self
 
-    /// Use OpenAI API. Pass API key or "" to read OPENAI_API_KEY from env.
-    pub fn openai(self, api_key: impl Into<String>) -> Self
-
-    /// Use Groq API (OpenAI-compatible). Pass Groq API key.
-    pub fn groq(self, api_key: impl Into<String>) -> Self
-
-    /// Use local Ollama. Pass base URL or "" for http://localhost:11434/v1.
-    pub fn ollama(self, base_url: impl Into<String>) -> Self
-
-    /// Use Anthropic API. Pass API key or "" to read ANTHROPIC_API_KEY from env.
-    pub fn anthropic(self, api_key: impl Into<String>) -> Self
-
-    // ── Retry policy ─────────────────────────────────────────────────────
-
-    /// Wrap LLM caller with exponential-backoff retry (1s, 2s, 4s, … cap 30s).
-    /// Auth errors (401/403) are never retried.
-    pub fn retry_on_error(self, n: u32) -> Self
-
-    // ── Configuration ────────────────────────────────────────────────────
-
-    pub fn config(self, config: AgentConfig) -> Self
-    pub fn max_steps(self, n: usize) -> Self
-    pub fn model(self, model: impl Into<String>) -> Self          // sets "default" key
-    pub fn model_for(self, task_type, model) -> Self              // per-task-type
-    pub fn models(self, models: HashMap<String, String>) -> Self  // full map
-
-    // ── Tool registration ────────────────────────────────────────────────
-
-    /// Register a raw tool (name, description, JSON Schema, function).
-    pub fn tool(self, name, description, schema: Value, func: ToolFn) -> Self
-
-    /// Register a tool built with the Tool builder.
-    pub fn add_tool(self, tool: Tool) -> Self
-
-    /// Prevent the agent from using the named tool.
-    pub fn blacklist_tool(self, name: impl Into<String>) -> Self
-
-    // ── Build ────────────────────────────────────────────────────────────
+    // ... (other methods)
 
     pub fn build(self) -> Result<AgentEngine, AgentError>
-    pub fn build_with_handlers(self, extra: HashMap<&'static str, Box<dyn AgentState>>) -> Result<AgentEngine, AgentError>
+}
 }
 ```
 
@@ -87,20 +50,19 @@ impl AgentEngine {
         handlers:    HashMap<&'static str, Box<dyn AgentState>>,
     ) -> Self
 
-    /// Run the agent to completion. Blocks until Done or Error.
+    /// Run the agent to completion.
     /// Returns: Ok(final_answer) | Err(AgentError)
-    pub fn run(&mut self) -> Result<String, AgentError>
+    pub async fn run(&mut self) -> Result<String, AgentError>
+
+    /// Run the agent with real-time streaming output.
+    pub fn run_streaming(&mut self) -> BoxStream<'_, AgentOutput>
 
     /// Access the full execution trace.
     pub fn trace(&self) -> &Trace
 
-    /// Current state (useful for inspection after run()).
-    pub fn current_state(&self) -> &State
-
-    // Public fields (accessible directly):
-    pub memory: AgentMemory
-    pub tools:  ToolRegistry
-    pub llm:    Box<dyn LlmCaller>
+    // ...
+    pub llm:    Box<dyn AsyncLlmCaller>
+}
 }
 ```
 
@@ -150,6 +112,31 @@ pub enum LlmResponse {
     FinalAnswer {
         content: String,        // The complete response text
     },
+}
+```
+
+### `AgentOutput` (Streaming)
+
+```rust
+pub enum AgentOutput {
+    StateStarted(State),
+    LlmToken(String),
+    ToolCallStarted { name: String, args: HashMap<String, Value> },
+    ToolCallFinished { name: String, result: String, success: bool },
+    ToolCallDelta { name: Option<String>, args_json: String },
+    Action(String),
+    FinalAnswer(String),
+    Error(String),
+}
+```
+
+### `LlmStreamChunk`
+
+```rust
+pub enum LlmStreamChunk {
+    Content(String),
+    ToolCallDelta { name: Option<String>, args_json: String },
+    Done(LlmResponse),
 }
 ```
 
@@ -264,21 +251,6 @@ Tool::new("search", "Search the web")
 
 ---
 
-## LLM Providers
-
-### `LlmCaller` Trait (sync)
-
-```rust
-pub trait LlmCaller: Send + Sync {
-    fn call(
-        &self,
-        memory: &AgentMemory,
-        tools:  &ToolRegistry,
-        model:  &str,
-    ) -> Result<LlmResponse, String>;
-}
-```
-
 ### `AsyncLlmCaller` Trait
 
 ```rust
@@ -290,6 +262,13 @@ pub trait AsyncLlmCaller: Send + Sync {
         tools:  &ToolRegistry,
         model:  &str,
     ) -> Result<LlmResponse, String>;
+
+    fn call_stream_async<'a>(
+        &'a self,
+        memory: &'a AgentMemory,
+        tools:  &'a ToolRegistry,
+        model:  &'a str,
+    ) -> BoxStream<'a, Result<LlmStreamChunk, String>>;
 }
 ```
 
@@ -354,9 +333,17 @@ impl RetryingLlmCaller {
 ### `AgentState` Trait
 
 ```rust
+#[async_trait]
 pub trait AgentState: Send + Sync {
     fn name(&self) -> &'static str;
-    fn handle(&self, memory: &mut AgentMemory, tools: &ToolRegistry, llm: &dyn LlmCaller) -> Event;
+    
+    async fn handle(
+        &self,
+        memory:    &mut AgentMemory,
+        tools:     &ToolRegistry,
+        llm:       &dyn AsyncLlmCaller,
+        output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
+    ) -> Event;
 }
 ```
 

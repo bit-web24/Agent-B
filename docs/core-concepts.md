@@ -39,14 +39,16 @@ pub enum State {
 Every state implements this trait:
 
 ```rust
+#[async_trait]
 pub trait AgentState: Send + Sync {
     fn name(&self) -> &'static str;
 
-    fn handle(
+    async fn handle(
         &self,
-        memory: &mut AgentMemory,
-        tools:  &ToolRegistry,
-        llm:    &dyn LlmCaller,
+        memory:    &mut AgentMemory,
+        tools:     &ToolRegistry,
+        llm:       &dyn AsyncLlmCaller,
+        output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
     ) -> Event;
 }
 ```
