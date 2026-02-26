@@ -212,6 +212,80 @@ std::fs::write("trace.json", trace_json).ok();
 
 ---
 
+## Checkpointing & Persistence
+
+`agentsm-rs` supports session persistence, allowing you to stop and resume agents across process restarts. This is critical for long-running workflows or crash recovery.
+
+### Using the SQLite Store
+
+```rust
+use agentsm::persistence::SqliteCheckpointStore;
+
+let store = SqliteCheckpointStore::new("agents.db").await?;
+
+let mut engine = AgentBuilder::new("Long task")
+    .openai(key)
+    .checkpoint_store(Arc::new(store))
+    .session_id("session-123") // Unique ID for this agent run
+    .build()?;
+
+engine.run().await?;
+```
+
+### Resuming an Agent
+
+```rust
+let mut engine = AgentBuilder::new("Long task") // Task must match (or will be updated from store)
+    .openai(key)
+    .checkpoint_store(Arc::new(store))
+    .resume("session-123") // Load state from last checkpoint
+    .build()?;
+```
+
+**Supported Stores:**
+- `MemoryCheckpointStore`: Volatile, thread-safe (useful for tests).
+- `FileCheckpointStore`: Simple JSON files in a directory.
+- `SqliteCheckpointStore`: Robust, production-grade persistence.
+
+---
+
+## Human-in-the-Loop (HITL)
+
+High-risk actions (spending money, deleting data) often require human approval. `agentsm-rs` integrates this directly into the state machine.
+
+### Approval Policies
+
+Define when a human must be consulted:
+
+```rust
+use agentsm::approval::ApprovalPolicy;
+
+let policy = ApprovalPolicy::new()
+    .require_for("delete_file")
+    .require_for("send_transaction")
+    .always_for_tool("expensive_research");
+
+let mut engine = AgentBuilder::new("task")
+    .openai(key)
+    .approval_policy(policy)
+    .on_approval(|request| {
+        println!("Approval required for tool: {}", request.tool.name);
+        println!("Arguments: {:?}", request.tool.args);
+        // In a real app, you might send a notification and wait
+        Ok(ApprovalAction::Approve)
+    })
+    .build()?;
+```
+
+### Approval Actions:
+- `Approve`: Execution proceeds with the original arguments.
+- `Reject`: Tool is skipped; the agent receives an "Access Denied" observation.
+- `Modify`: arguments are updated by the human before execution.
+
+When approval is required, the agent transitions to `WaitingForHuman` state.
+
+---
+
 ## Custom Memory Extension
 
 `AgentMemory` is a plain struct with all public fields. For advanced scenarios, wrap it:

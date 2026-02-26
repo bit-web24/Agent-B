@@ -13,6 +13,8 @@ States are the nodes in the agent's control graph. Each state has a single job:
 | `Idle` | Log start, emit `Start` | No | No |
 | `Planning` | Call LLM, decide next action | **Yes** | No |
 | `Acting` | Execute the tool the LLM chose | No | **Yes** |
+| `ParallelActing`| Run multiple tools simultaneously | No | **Yes** |
+| `WaitingForHuman`| Pause for manual approval | No | No |
 | `Observing` | Commit result to history | No | No |
 | `Reflecting` | Compress history | Optional | No |
 | `Done` | Log completion (terminal) | No | No |
@@ -25,6 +27,8 @@ pub enum State {
     Idle,
     Planning,
     Acting,
+    ParallelActing,
+    WaitingForHuman,
     Observing,
     Reflecting,
     Done,
@@ -67,24 +71,31 @@ pub enum Event {
     Start,
 
     // Planning outcomes
-    LlmToolCall,       // LLM requested a tool call
-    LlmFinalAnswer,    // LLM produced a final answer
-    MaxSteps,          // step counter hit the limit
-    LowConfidence,     // confidence below threshold, retry budget remaining
-    AnswerTooShort,    // final answer too short
-    ToolBlacklisted,   // LLM requested a blacklisted tool
-    FatalError,        // unrecoverable LLM error
+    LlmToolCall,             // LLM requested a tool call
+    LlmParallelToolCalls,   // LLM requested multiple tool calls
+    LlmFinalAnswer,          // LLM produced a final answer
+    MaxSteps,                // step counter hit the limit
+    LowConfidence,           // confidence below threshold, retry budget remaining
+    AnswerTooShort,          // final answer too short
+    ToolBlacklisted,         // LLM requested a blacklisted tool
+    HumanApprovalRequired,   // Approval required by policy
+    FatalError,              // unrecoverable LLM error
+
+    // Human connection
+    HumanApproved,           // User approved action
+    HumanRejected,           // User rejected action
+    HumanModified,           // User changed tool arguments
 
     // Acting outcomes
-    ToolSuccess,       // tool executed successfully
-    ToolFailure,       // tool raised an error (becomes observation data)
+    ToolSuccess,             // tool executed successfully
+    ToolFailure,             // tool raised an error (becomes observation data)
 
     // Observing outcomes
-    Continue,          // normal flow back to Planning
-    NeedsReflection,   // step count triggers history compression
+    Continue,                // normal flow back to Planning
+    NeedsReflection,         // step count triggers history compression
 
     // Reflecting outcomes
-    ReflectDone,       // compression complete, back to Planning
+    ReflectDone,             // compression complete, back to Planning
 }
 ```
 
@@ -109,10 +120,15 @@ pub struct AgentMemory {
     pub step:               usize,          // Incremented by PlanningState only
     pub retry_count:        usize,          // Low-confidence retries used
     pub confidence_score:   f64,            // Last LLM confidence value
+    pub total_usage:        TokenUsage,     // Accumulated token consumption
+    pub budget:             Option<TokenBudget>, // Resource limits
 
     // Tool call lifecycle
     pub current_tool_call:  Option<ToolCall>,   // Set by Planning, cleared by Observing
+    pub pending_tool_calls: Vec<ToolCall>,      // For parallel execution
+    pub parallel_results:   Vec<ToolResult>,    // Collected results from parallel runs
     pub last_observation:   Option<String>,     // Set by Acting, cleared by Observing
+    pub pending_approval:   Option<HumanApprovalRequest>, // For HITL
 
     // Results
     pub history:            Vec<HistoryEntry>,  // Append-only completed tool calls
@@ -167,18 +183,26 @@ Every legal transition is explicitly declared in `build_transition_table()`:
 (Idle,       Start)           → Planning
 
 // PLANNING
-(Planning,   LlmToolCall)     → Acting
-(Planning,   LlmFinalAnswer)  → Done
-(Planning,   MaxSteps)        → Error
-(Planning,   LowConfidence)   → Reflecting
-(Planning,   AnswerTooShort)  → Planning    // retry loop
-(Planning,   ToolBlacklisted) → Planning    // retry loop
-(Planning,   FatalError)      → Error
+(Planning,   LlmToolCall)             → Acting
+(Planning,   LlmParallelToolCalls)   → ParallelActing
+(Planning,   LlmFinalAnswer)          → Done
+(Planning,   MaxSteps)                → Error
+(Planning,   LowConfidence)           → Reflecting
+(Planning,   AnswerTooShort)          → Planning
+(Planning,   ToolBlacklisted)         → Planning
+(Planning,   HumanApprovalRequired)   → WaitingForHuman
+(Planning,   FatalError)              → Error
 
-// ACTING
-(Acting,     ToolSuccess)     → Observing
-(Acting,     ToolFailure)     → Observing   // failure is data!
-(Acting,     FatalError)      → Error
+// WAITING FOR HUMAN
+(WaitingForHuman, HumanApproved)      → Acting
+(WaitingForHuman, HumanRejected)      → Observing
+(WaitingForHuman, HumanModified)      → Acting
+
+// ACTING / PARALLEL ACTING
+(Acting,         ToolSuccess)         → Observing
+(Acting,         ToolFailure)         → Observing
+(ParallelActing, ToolSuccess)         → Observing
+(ParallelActing, ToolFailure)         → Observing
 
 // OBSERVING
 (Observing,  Continue)        → Planning
@@ -198,11 +222,12 @@ Controls the agent's behavior limits:
 
 ```rust
 pub struct AgentConfig {
-    pub max_steps:             usize,  // Hard cap on Planning cycles (default: 15)
-    pub max_retries:           usize,  // Low-confidence retry budget (default: 3)
-    pub confidence_threshold:  f64,    // Below this → LowConfidence event (default: 0.4)
-    pub reflect_every_n_steps: usize,  // Compress history every N steps (0 = never) (default: 5)
-    pub min_answer_length:     usize,  // Shorter answers → AnswerTooShort event (default: 20)
+    pub max_steps:             usize,  // Hard cap on Planning cycles
+    pub max_retries:           usize,  // Low-confidence retry budget
+    pub confidence_threshold:  f64,    // Below this → LowConfidence event
+    pub reflect_every_n_steps: usize,  // Compress history every N steps
+    pub min_answer_length:     usize,  // Shorter answers → AnswerTooShort event
+    pub parallel_tools:        bool,   // Enable/disable parallel execution
 }
 ```
 

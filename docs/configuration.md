@@ -11,6 +11,7 @@ pub struct AgentConfig {
     pub confidence_threshold:  f64,    // Confidence floor before reflection
     pub reflect_every_n_steps: usize,  // Periodic history compression interval
     pub min_answer_length:     usize,  // Minimum chars for a valid final answer
+    pub parallel_tools:        bool,   // Enable/disable parallel execution
     pub models: HashMap<String, String>, // task_type → model name
 }
 
@@ -22,7 +23,8 @@ impl Default for AgentConfig {
             confidence_threshold:  0.4,
             reflect_every_n_steps: 5,
             min_answer_length:     20,
-            models:                HashMap::new(), // no hardcoded defaults
+            parallel_tools:        true,
+            models:                HashMap::new(),
         }
     }
 }
@@ -166,6 +168,45 @@ This prevents the agent from returning trivially short answers like `"Yes."` or 
 // For report-writing agents expecting long-form output
 .config(AgentConfig { min_answer_length: 200, ..Default::default() })
 ```
+
+---
+
+### `parallel_tools`
+
+**Default: true**
+
+When enabled, the agent can execute multiple independent tool calls in parallel if requested by the LLM. This significantly reduces latency for complex tasks.
+
+```rust
+// Disable parallel execution — force sequential tool calls
+AgentBuilder::new("task")
+    .parallel_tools(false)
+    .build()?
+```
+
+---
+
+## Token Budgeting
+
+Limit the agent's resource consumption by setting session-wide token budgets.
+
+```rust
+use agentsm::TokenBudget;
+
+AgentBuilder::new("task")
+    .max_tokens(5000) // Simple limit: total tokens (input + output)
+    .token_budget(TokenBudget {
+        max_input_tokens:  Some(10000),
+        max_output_tokens: Some(2000),
+        max_total_tokens:  Some(12000),
+    })
+    .build()?
+```
+
+When a budget limit is exceeded:
+1. `memory.error` is set with details about which limit was hit.
+2. `Event::FatalError` (or a specific BudgetExceeded event if implemented) is emitted.
+3. The agent transitions to the `Error` state and terminates.
 
 ---
 

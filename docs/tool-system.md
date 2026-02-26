@@ -140,7 +140,7 @@ json!({
 ## The Tool Function Signature
 
 ```rust
-Box<dyn Fn(&HashMap<String, serde_json::Value>) -> Result<String, String> + Send + Sync>
+Arc<dyn Fn(&HashMap<String, serde_json::Value>) -> Result<String, String> + Send + Sync>
 ```
 
 - Input: `&HashMap<String, serde_json::Value>` — the parsed arguments from the LLM
@@ -198,9 +198,44 @@ AgentBuilder::new("Research and calculate compound interest for $10,000 at 7% fo
     .llm(llm)
     .tool("search",     "Search for financial data...", search_schema,     search_fn)
     .tool("calculator", "Evaluate mathematical expressions...", calc_schema, calc_fn)
-    .tool("format",     "Format numbers as currency...", format_schema,    format_fn)
+    .parallel_tools(true) // Enable parallel execution of independent tools
     .build()?
 ```
+
+---
+
+## Parallel Tool Execution
+
+If `parallel_tools` is enabled (default: true) and the LLM produces a multi-tool-call response, those tools are executed simultaneously in a thread pool.
+
+- Results are merged and presented to the LLM in the next turn.
+- If one tool fails, others continue.
+- Useful for speeding up independent operations (e.g., searching 3 websites at once).
+
+---
+
+## Sub-Agents as Tools
+
+`agentsm-rs` allows you to treat an agent as a regular tool. This enables recursive delegation and modular multi-agent systems.
+
+### Using `AgentBuilder::as_tool`
+
+```rust
+let calculator_agent = AgentBuilder::new("math")
+    .openai(key)
+    .add_tool(calc_tool)
+    .as_tool("math_specialist", "A specialist for complex mathematical proofs.");
+
+AgentBuilder::new("Prove the Riemann Hypothesis")
+    .openai(key)
+    .add_subagent(calculator_agent) // Register it like any other tool
+    .build()?
+```
+
+**How it works:**
+- The sub-agent is cloned into the tool registry (via `Arc`).
+- When the parent calls the sub-agent tool, the sub-agent runs to completion (synchronously from the perspective of the tool call).
+- The sub-agent's final answer becomes the tool observation for the parent.
 
 ---
 

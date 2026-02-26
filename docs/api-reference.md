@@ -21,12 +21,51 @@ impl AgentBuilder {
     /// Set the system prompt prepended to every LLM call.
     pub fn system_prompt(self, p: impl Into<String>) -> Self
 
-    // ── Provider shortcuts ───────────────────────────────────────────────
-
     /// Set the LLM caller explicitly.
-    pub fn llm(self, llm: Box<dyn AsyncLlmCaller>) -> Self
+    pub fn llm(self, llm: Arc<dyn AsyncLlmCaller>) -> Self
 
-    // ... (other methods)
+    // ── Feature: Parallelization ─────────────────────────────────────────
+
+    /// Enable/disable parallel tool execution (default: true).
+    pub fn parallel_tools(self, enabled: bool) -> Self
+
+    // ── Feature: Human-in-the-Loop ──────────────────────────────────────
+
+    /// Set the approval policy for high-risk tools.
+    pub fn approval_policy(self, policy: ApprovalPolicy) -> Self
+
+    /// Set a callback for handling approval requests.
+    pub fn on_approval<F>(self, f: F) -> Self
+    where F: Fn(HumanApprovalRequest) -> Result<ApprovalAction, String> + Send + Sync + 'static
+
+    // ── Feature: Persistence & Checkpointing ─────────────────────────────
+
+    /// Set the persistent storage for checkpoints.
+    pub fn checkpoint_store(self, store: Arc<dyn CheckpointStore>) -> Self
+
+    /// Set a unique session ID for this run.
+    pub fn session_id(self, id: impl Into<String>) -> Self
+
+    /// Resume a run from the last checkpoint in the store.
+    pub fn resume(self, session_id: impl Into<String>) -> Self
+
+    // ── Feature: Token Budgeting ─────────────────────────────────────────
+
+    /// Set a simple total token limit for the session.
+    pub fn max_tokens(self, n: usize) -> Self
+
+    /// Set complex resource limits.
+    pub fn token_budget(self, budget: TokenBudget) -> Self
+
+    // ── Feature: Sub-Agents ──────────────────────────────────────────────
+
+    /// Convert this builder's configuration into a tool.
+    pub fn as_tool(self, name: impl Into<String>, description: impl Into<String>) -> Tool
+
+    /// Add a sub-agent as a tool.
+    pub fn add_subagent(self, tool: Tool) -> Self
+
+    // ── Builder completion ───────────────────────────────────────────────
 
     pub fn build(self) -> Result<AgentEngine, AgentError>
 }
@@ -74,7 +113,7 @@ impl AgentEngine {
 
 ```rust
 pub enum State {
-    Idle, Planning, Acting, Observing, Reflecting, Done, Error,
+    Idle, Planning, Acting, ParallelActing, WaitingForHuman, Observing, Reflecting, Done, Error,
 }
 
 impl State {
@@ -91,8 +130,9 @@ impl State {
 ```rust
 pub enum Event {
     Start,
-    LlmToolCall, LlmFinalAnswer, MaxSteps, LowConfidence,
+    LlmToolCall, LlmParallelToolCalls, LlmFinalAnswer, MaxSteps, LowConfidence,
     AnswerTooShort, ToolBlacklisted, FatalError,
+    HumanApprovalRequired, HumanApproved, HumanRejected, HumanModified,
     ToolSuccess, ToolFailure,
     Continue, NeedsReflection,
     ReflectDone,
@@ -164,12 +204,13 @@ pub struct HistoryEntry {
 
 ```rust
 pub struct AgentConfig {
-    pub max_steps:             usize,                  // Default: 15
-    pub max_retries:           usize,                  // Default: 3
-    pub confidence_threshold:  f64,                    // Default: 0.4
-    pub reflect_every_n_steps: usize,                  // Default: 5 (0 = disabled)
-    pub min_answer_length:     usize,                  // Default: 20
-    pub models:                HashMap<String, String>, // Default: empty
+    pub max_steps:             usize,
+    pub max_retries:           usize,
+    pub confidence_threshold:  f64,
+    pub reflect_every_n_steps: usize,
+    pub min_answer_length:     usize,
+    pub parallel_tools:        bool,
+    pub models:                HashMap<String, String>,
 }
 
 impl Default for AgentConfig { ... }  // uses the defaults above
@@ -211,7 +252,7 @@ impl AgentMemory {
 
 ```rust
 /// ToolFn type alias
-pub type ToolFn = Box<dyn Fn(&HashMap<String, Value>) -> Result<String, String> + Send + Sync>;
+pub type ToolFn = Arc<dyn Fn(&HashMap<String, Value>) -> Result<String, String> + Send + Sync>;
 
 impl ToolRegistry {
     pub fn new() -> Self
@@ -448,14 +489,20 @@ use agentsm::{
     Event,
     LlmResponse,
     ToolCall,
+    ToolResult,
     HistoryEntry,
     ToolRegistry,
     ToolFn,
-    Tool,               // Tool builder
+    Tool,
     LlmCaller,
     LlmCallerExt,
-    RetryingLlmCaller,  // retry wrapper
+    RetryingLlmCaller,
     TraceEntry,
     Trace,
+    TokenBudget,
+    TokenUsage,
+    ApprovalPolicy,
+    ApprovalAction,
+    HumanApprovalRequest,
 };
 ```

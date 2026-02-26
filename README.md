@@ -55,8 +55,13 @@
 `agentsm-rs` is a Rust library for building production Agentic AI systems using a **Hybrid State Machine pattern**. It provides:
 
 - A typed, compile-time-verified state machine engine for agent control flow
+- **Parallel Tool Execution**: Run multiple independent tool calls in a single turn.
+- **Human-in-the-loop (HITL)**: Integrated approval workflows for high-risk actions.
+- **Checkpointing & Persistence**: Built-in SQLite, File, and Memory stores for crash recovery.
+- **Token Budgeting**: Track and enforce session-wide usage limits.
+- **Sub-Agents as Tools**: Delegate complex tasks to specialized agents recursively.
 - A clean abstraction over LLM providers (OpenAI, Anthropic, any OpenAI-compatible)
-- A typed tool registry with schema generation
+- A typed tool registry with shared ownership (`Arc`) for modular sub-agents
 - Full event-sourcing trace for every agent run
 - Zero magic — every behavior is explicit code you own
 
@@ -1923,3 +1928,32 @@ RUST_LOG=debug cargo run --example basic_agent
 ---
 
 *This README is a complete specification. An agent following it has everything needed to build `agentsm-rs` as a fully working, production-ready Rust library with zero ambiguity.*
+
+---
+
+## 11. New Production Features (v0.1.0 Enhancements)
+
+The library has been significantly enhanced with production-grade features for reliability, safety, and scalability.
+
+### 11.1 Parallel Tool Execution
+The agent can now execute multiple independent tool calls in a single turn. This is controlled by `parallel_tools` in `AgentConfig`. Parallel execution utilizes a multi-threaded Tokio runtime to minimize latency.
+
+### 11.2 Human-in-the-Loop (HITL)
+High-risk tools can now require manual human approval.
+- **Approval Policies**: Define specific tools that always require a green light.
+- **Interactive Callbacks**: Register a closure to handle approval requests, allowing humans to **Approve**, **Reject**, or **Modify** tool arguments before they execute.
+
+### 11.3 Checkpointing & Crash Recovery
+Full session persistence is now available via `CheckpointStore`.
+- **Stores**: Support for SQLite, File System, and In-Memory storage.
+- **Resume**: Agents can be resumed from their last known good state using a `session_id`, enabling long-running tasks that survive process restarts.
+
+### 11.4 Token Budget Management
+Prevent runaway costs by setting strict token limits on every agent run.
+- **Granular Control**: Set limits for input, output, or total tokens.
+- **Automatic Enforcement**: The state machine includes a budget guard that terminates the loop safely if limits are reached.
+
+### 11.5 Sub-Agents as Tools
+Recursive delegation is now a first-class citizen.
+- **Modularity**: Convert any `AgentBuilder` into a `Tool` using `.as_tool()`.
+- **Recursive Reasoning**: Parent agents can delegate complex sub-tasks to specialist sub-agents, who treat their final answer as the tool result.
