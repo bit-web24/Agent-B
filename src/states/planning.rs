@@ -49,6 +49,20 @@ impl PlanningState {
             return Event::low_confidence();
         }
 
+        // Check human approval
+        if memory.approval_policy.needs_approval(&tool.name, &tool.args) {
+            memory.pending_approval = Some(crate::human::HumanApprovalRequest {
+                tool_name: tool.name.clone(),
+                tool_args: tool.args.clone(),
+                risk_level: crate::human::RiskLevel::High, // Default to High for now if policy says yes
+                reason: "Policy-mandated approval".to_string(),
+            });
+            memory.current_tool_call = Some(tool);
+            memory.confidence_score = confidence;
+            memory.log("Planning", "APPROVAL_REQUIRED", "Action needs human approval");
+            return Event::human_approval_required();
+        }
+
         // Accept tool call
         memory.current_tool_call = Some(tool.clone());
         memory.pending_tool_calls.clear(); // Clear parallel queue if single call

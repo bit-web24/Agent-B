@@ -8,6 +8,7 @@ use crate::llm::{AsyncLlmCaller, OpenAiCaller, AnthropicCaller, RetryingLlmCalle
 use crate::states::{
     AgentState, IdleState, PlanningState, ActingState, ParallelActingState,
     ObservingState, ReflectingState, DoneState, ErrorState,
+    WaitingForHumanState,
 };
 use crate::transitions::build_transition_table;
 use crate::types::{AgentConfig, State};
@@ -177,6 +178,19 @@ impl AgentBuilder {
     /// Enable or disable parallel tool execution.
     pub fn parallel_tools(mut self, enabled: bool) -> Self {
         self.memory.config.parallel_tools = enabled; 
+        self
+    }
+
+    /// Require human approval for certain tools.
+    pub fn approval_policy(mut self, policy: crate::human::ApprovalPolicy) -> Self {
+        self.memory.approval_policy = policy;
+        self
+    }
+
+    /// Callback for human approval.
+    pub fn on_approval<F>(mut self, callback: F) -> Self 
+    where F: Fn(crate::human::HumanApprovalRequest) -> crate::human::HumanDecision + Send + Sync + 'static {
+        self.memory.approval_callback = Some(crate::memory::ApprovalCallback(std::sync::Arc::new(callback)));
         self
     }
 
@@ -389,6 +403,7 @@ impl AgentBuilder {
         handlers.insert("Reflecting".to_string(), Box::new(ReflectingState));
         handlers.insert("Done".to_string(),       Box::new(DoneState));
         handlers.insert("Error".to_string(),      Box::new(ErrorState));
+        handlers.insert("WaitingForHuman".to_string(), Box::new(WaitingForHumanState));
 
         // Merge custom handlers (overwriting defaults if same name)
         for (name, handler) in self.custom_handlers {
@@ -438,6 +453,7 @@ impl AgentBuilder {
         handlers.insert("Reflecting".to_string(), Box::new(ReflectingState));
         handlers.insert("Done".to_string(),       Box::new(DoneState));
         handlers.insert("Error".to_string(),      Box::new(ErrorState));
+        handlers.insert("WaitingForHuman".to_string(), Box::new(WaitingForHumanState));
 
         // Merge custom handlers from .state() calls
         for (name, handler) in self.custom_handlers {

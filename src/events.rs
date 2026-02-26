@@ -41,6 +41,12 @@ impl Event {
     pub fn tool_blacklisted()-> Self { Self::new("ToolBlacklisted") }
     pub fn fatal_error()     -> Self { Self::new("FatalError") }
 
+    // Human involvement
+    pub fn human_approval_required() -> Self { Self::new("HumanApprovalRequired") }
+    pub fn human_approved()          -> Self { Self::new("HumanApproved") }
+    pub fn human_rejected()          -> Self { Self::new("HumanRejected") }
+    pub fn human_modified()          -> Self { Self::new("HumanModified") }
+
     // Acting outcomes
     pub fn tool_success()    -> Self { Self::new("ToolSuccess") }
     pub fn tool_failure()    -> Self { Self::new("ToolFailure") }

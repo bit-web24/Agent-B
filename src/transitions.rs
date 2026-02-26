@@ -25,7 +25,14 @@ pub fn build_transition_table() -> TransitionTable {
     t.insert((State::planning(),   Event::low_confidence()),   State::reflecting());
     t.insert((State::planning(),   Event::answer_too_short()),  State::planning());
     t.insert((State::planning(),   Event::tool_blacklisted()), State::planning());
+    t.insert((State::planning(),   Event::human_approval_required()), State::waiting_for_human());
     t.insert((State::planning(),   Event::fatal_error()),      State::error());
+
+    // ── WAITING FOR HUMAN ───────────────────────────────
+    t.insert((State::waiting_for_human(), Event::human_approved()), State::acting());
+    t.insert((State::waiting_for_human(), Event::human_rejected()), State::observing());
+    t.insert((State::waiting_for_human(), Event::human_modified()), State::acting());
+    t.insert((State::waiting_for_human(), Event::fatal_error()),   State::error());
 
     // ── ACTING ───────────────────────────────────────────
     t.insert((State::acting(),     Event::tool_success()),     State::observing());

@@ -42,6 +42,7 @@ impl State {
     pub fn done()       -> Self { Self::new("Done") }
     pub fn error()      -> Self { Self::new("Error") }
     pub fn parallel_acting() -> Self { Self::new("ParallelActing") }
+    pub fn waiting_for_human() -> Self { Self::new("WaitingForHuman") }
 }
 
 /// Result of a single tool execution in a parallel batch.

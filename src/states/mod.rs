@@ -14,6 +14,7 @@ mod observing;
 mod reflecting;
 mod done;
 mod error;
+mod waiting_for_human;
 
 pub use idle::IdleState;
 pub use planning::PlanningState;
@@ -23,6 +24,7 @@ pub use observing::ObservingState;
 pub use reflecting::ReflectingState;
 pub use done::DoneState;
 pub use error::ErrorState;
+pub use waiting_for_human::WaitingForHumanState;
 
 /// The contract every state must fulfill.
 ///

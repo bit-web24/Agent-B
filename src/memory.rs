@@ -1,7 +1,23 @@
 use crate::types::{ToolCall, HistoryEntry, AgentConfig, ToolResult};
 use crate::trace::{TraceEntry, Trace};
+use crate::human::{HumanApprovalRequest, ApprovalPolicy, HumanDecision};
 use chrono::Utc;
 use std::collections::HashSet;
+use std::sync::Arc;
+
+pub struct ApprovalCallback(pub Arc<dyn Fn(HumanApprovalRequest) -> HumanDecision + Send + Sync>);
+
+impl std::fmt::Debug for ApprovalCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<callback>")
+    }
+}
+
+impl Clone for ApprovalCallback {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
 
 #[derive(Debug)]
 pub struct AgentMemory {
@@ -45,6 +61,14 @@ pub struct AgentMemory {
     /// Tools the agent is not permitted to call
     pub blacklisted_tools:  HashSet<String>,
 
+    // ── Human-in-the-Loop ────────────────────────────────
+    /// Set when a tool call requires human approval
+    pub pending_approval:   Option<HumanApprovalRequest>,
+    /// Policy defining which tools require approval
+    pub approval_policy:    ApprovalPolicy,
+    /// Callback invoked when approval is needed
+    pub approval_callback:  Option<ApprovalCallback>,
+
     // ── Observability ────────────────────────────────────
     /// Full event-sourcing log — every state transition recorded here
     pub trace:              Trace,
@@ -68,6 +92,9 @@ impl AgentMemory {
             error:             None,
             config:            AgentConfig::default(),
             blacklisted_tools: HashSet::new(),
+            pending_approval:   None,
+            approval_policy:    ApprovalPolicy::default(),
+            approval_callback:  None,
             trace:             Trace::new(),
         }
     }
