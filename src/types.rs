@@ -41,6 +41,32 @@ impl State {
     pub fn reflecting() -> Self { Self::new("Reflecting") }
     pub fn done()       -> Self { Self::new("Done") }
     pub fn error()      -> Self { Self::new("Error") }
+    pub fn parallel_acting() -> Self { Self::new("ParallelActing") }
+}
+
+/// Result of a single tool execution in a parallel batch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolResult {
+    pub tool_name:  String,
+    pub tool_args:  HashMap<String, serde_json::Value>,
+    pub id:         Option<String>,
+    pub output:     String,      // "SUCCESS: ..." or "ERROR: ..."
+    pub success:    bool,
+    pub latency_ms: u64,
+}
+
+impl ToolResult {
+    pub fn success(tool_name: String, tool_args: HashMap<String, serde_json::Value>,
+                   id: Option<String>, output: String, latency_ms: u64) -> Self {
+        Self { tool_name, tool_args, id, output: format!("SUCCESS: {}", output),
+               success: true, latency_ms }
+    }
+
+    pub fn failure(tool_name: String, tool_args: HashMap<String, serde_json::Value>,
+                   id: Option<String>, error: String, latency_ms: u64) -> Self {
+        Self { tool_name, tool_args, id, output: format!("ERROR: {}", error),
+               success: false, latency_ms }
+    }
 }
 
 impl std::fmt::Display for State {
@@ -54,6 +80,7 @@ impl std::fmt::Display for State {
 pub struct ToolCall {
     pub name: String,
     pub args: HashMap<String, serde_json::Value>,
+    pub id:   Option<String>,
 }
 
 /// A completed tool invocation stored in history.
@@ -72,6 +99,11 @@ pub enum LlmResponse {
     ToolCall {
         tool:       ToolCall,
         confidence: f64,      // 0.0 - 1.0, estimated from response metadata
+    },
+    /// LLM wants to invoke multiple tools in parallel
+    ParallelToolCalls {
+        tools:      Vec<ToolCall>,
+        confidence: f64,
     },
     /// LLM produced a final answer — task is complete
     FinalAnswer {
@@ -142,6 +174,9 @@ pub struct AgentConfig {
     /// Minimum answer length in characters
     pub min_answer_length: usize,
 
+    /// Whether to allow parallel tool execution
+    pub parallel_tools: bool,
+
     /// Model selection map: task_type → model name string.
     ///
     /// The key `"default"` is used as the fallback when the agent's
@@ -171,7 +206,8 @@ impl Default for AgentConfig {
             max_retries:           3,
             confidence_threshold:  0.4,
             reflect_every_n_steps: 5,
-            min_answer_length:     20,
+            min_answer_length:     5,
+            parallel_tools:        true,
             models:                HashMap::new(), // no hardcoded defaults
         }
     }

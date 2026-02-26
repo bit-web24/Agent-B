@@ -15,7 +15,7 @@ impl AgentState for ActingState {
     async fn handle(
         &self,
         memory:    &mut AgentMemory,
-        tools:     &ToolRegistry,
+        tools:     &std::sync::Arc<ToolRegistry>,
         _llm:      &dyn AsyncLlmCaller,
         output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
     ) -> Event {

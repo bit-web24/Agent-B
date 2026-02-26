@@ -3,6 +3,7 @@ use crate::llm::LlmCaller;
 use crate::memory::AgentMemory;
 use crate::tools::ToolRegistry;
 use crate::types::LlmResponse;
+use async_trait::async_trait;
 
 pub struct MockLlmCaller {
     responses: Mutex<Vec<LlmResponse>>,
@@ -27,6 +28,32 @@ impl MockLlmCaller {
         self.call_log.lock().unwrap()
             .get(n)
             .map(|(model, _)| model.clone())
+    }
+}
+
+#[async_trait]
+impl crate::llm::AsyncLlmCaller for MockLlmCaller {
+    async fn call_async(
+        &self,
+        memory: &AgentMemory,
+        tools:  &ToolRegistry,
+        model:  &str,
+    ) -> Result<LlmResponse, String> {
+        self.call(memory, tools, model)
+    }
+
+    fn call_stream_async<'a>(
+        &'a self,
+        memory: &'a AgentMemory,
+        tools:  &'a ToolRegistry,
+        model:  &'a str,
+    ) -> futures::stream::BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
+        let resp = self.call(memory, tools, model);
+        use futures::stream::{self, StreamExt};
+        match resp {
+            Ok(r) => stream::once(async move { Ok(crate::types::LlmStreamChunk::Done(r)) }).boxed(),
+            Err(e) => stream::once(async move { Err(e) }).boxed(),
+        }
     }
 }
 

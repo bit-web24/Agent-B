@@ -19,6 +19,7 @@ pub fn build_transition_table() -> TransitionTable {
 
     // ── PLANNING ─────────────────────────────────────────
     t.insert((State::planning(),   Event::llm_tool_call()),     State::acting());
+    t.insert((State::planning(),   Event::llm_parallel_tool_calls()), State::parallel_acting());
     t.insert((State::planning(),   Event::llm_final_answer()),  State::done());
     t.insert((State::planning(),   Event::max_steps()),        State::error());
     t.insert((State::planning(),   Event::low_confidence()),   State::reflecting());
@@ -30,6 +31,11 @@ pub fn build_transition_table() -> TransitionTable {
     t.insert((State::acting(),     Event::tool_success()),     State::observing());
     t.insert((State::acting(),     Event::tool_failure()),     State::observing());
     t.insert((State::acting(),     Event::fatal_error()),      State::error());
+
+    // ── PARALLEL ACTING ──────────────────────────────────
+    t.insert((State::parallel_acting(), Event::tool_success()), State::observing());
+    t.insert((State::parallel_acting(), Event::tool_failure()), State::observing());
+    t.insert((State::parallel_acting(), Event::fatal_error()),  State::error());
 
     // ── OBSERVING ────────────────────────────────────────
     t.insert((State::observing(),  Event::r#continue()),        State::planning());

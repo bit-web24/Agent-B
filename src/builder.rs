@@ -6,7 +6,7 @@ use crate::memory::AgentMemory;
 use crate::tools::{ToolRegistry, ToolFn, Tool};
 use crate::llm::{AsyncLlmCaller, OpenAiCaller, AnthropicCaller, RetryingLlmCaller};
 use crate::states::{
-    AgentState, IdleState, PlanningState, ActingState,
+    AgentState, IdleState, PlanningState, ActingState, ParallelActingState,
     ObservingState, ReflectingState, DoneState, ErrorState,
 };
 use crate::transitions::build_transition_table;
@@ -172,6 +172,12 @@ impl AgentBuilder {
 
     pub fn max_steps(mut self, n: usize) -> Self {
         self.memory.config.max_steps = n; self
+    }
+
+    /// Enable or disable parallel tool execution.
+    pub fn parallel_tools(mut self, enabled: bool) -> Self {
+        self.memory.config.parallel_tools = enabled; 
+        self
     }
 
     /// Set the model used for all planning steps (sets `"default"` key).
@@ -378,6 +384,7 @@ impl AgentBuilder {
         handlers.insert("Idle".to_string(),       Box::new(IdleState));
         handlers.insert("Planning".to_string(),   Box::new(PlanningState));
         handlers.insert("Acting".to_string(),     Box::new(ActingState));
+        handlers.insert("ParallelActing".to_string(), Box::new(ParallelActingState));
         handlers.insert("Observing".to_string(),  Box::new(ObservingState));
         handlers.insert("Reflecting".to_string(), Box::new(ReflectingState));
         handlers.insert("Done".to_string(),       Box::new(DoneState));
@@ -396,7 +403,7 @@ impl AgentBuilder {
 
         Ok(AgentEngine::new(
             self.memory,
-            self.tools,
+            Arc::new(self.tools),
             llm,
             transitions,
             handlers,
@@ -426,6 +433,7 @@ impl AgentBuilder {
         handlers.insert("Idle".to_string(),       Box::new(IdleState));
         handlers.insert("Planning".to_string(),   Box::new(PlanningState));
         handlers.insert("Acting".to_string(),     Box::new(ActingState));
+        handlers.insert("ParallelActing".to_string(), Box::new(ParallelActingState));
         handlers.insert("Observing".to_string(),  Box::new(ObservingState));
         handlers.insert("Reflecting".to_string(), Box::new(ReflectingState));
         handlers.insert("Done".to_string(),       Box::new(DoneState));
@@ -449,7 +457,7 @@ impl AgentBuilder {
 
         Ok(AgentEngine::new(
             self.memory,
-            self.tools,
+            Arc::new(self.tools),
             llm,
             transitions,
             handlers,

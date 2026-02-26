@@ -184,11 +184,11 @@ impl AsyncLlmCaller for AnthropicCaller {
         // Tool use takes priority
         for block in parsed.content {
             match block {
-                AnthropicContentBlock::ToolUse { name, input, .. } => {
+                AnthropicContentBlock::ToolUse { id, name, input, .. } => {
                     let args = serde_json::from_value(input)
                         .map_err(|e| format!("Invalid tool args: {}", e))?;
                     return Ok(LlmResponse::ToolCall {
-                        tool: ToolCall { name, args },
+                        tool: ToolCall { name, args, id: Some(id) },
                         confidence: 1.0,
                     });
                 }
@@ -243,6 +243,7 @@ impl AsyncLlmCaller for AnthropicCaller {
             match res {
                 Ok(resp) if resp.status().is_success() => {
                     let mut accumulated_content = String::new();
+                    let mut accumulated_tool_id = String::new();
                     let mut accumulated_tool_name = String::new();
                     let mut accumulated_tool_args = String::new();
                     
@@ -259,7 +260,8 @@ impl AsyncLlmCaller for AnthropicCaller {
                                     if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
                                         match event {
                                             AnthropicStreamEvent::ContentBlockStart { content_block, .. } => {
-                                                if let AnthropicContentBlock::ToolUse { name, .. } = content_block {
+                                                if let AnthropicContentBlock::ToolUse { id, name, .. } = content_block {
+                                                    accumulated_tool_id = id;
                                                     accumulated_tool_name = name;
                                                 }
                                             }
@@ -285,7 +287,7 @@ impl AsyncLlmCaller for AnthropicCaller {
                                                             serde_json::from_str(&accumulated_tool_args)
                                                                 .map_err(|e| format!("Failed to parse Anthropic tool args: {}", e))?;
                                                         chunks.push(Ok(crate::types::LlmStreamChunk::Done(LlmResponse::ToolCall {
-                                                            tool: ToolCall { name: accumulated_tool_name.clone(), args },
+                                                            tool: ToolCall { name: accumulated_tool_name.clone(), args, id: Some(accumulated_tool_id.clone()) },
                                                             confidence: 1.0,
                                                         })));
                                                     } else if !accumulated_content.is_empty() {

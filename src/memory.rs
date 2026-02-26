@@ -1,4 +1,4 @@
-use crate::types::{ToolCall, HistoryEntry, AgentConfig};
+use crate::types::{ToolCall, HistoryEntry, AgentConfig, ToolResult};
 use crate::trace::{TraceEntry, Trace};
 use chrono::Utc;
 use std::collections::HashSet;
@@ -26,6 +26,11 @@ pub struct AgentMemory {
     pub current_tool_call:  Option<ToolCall>,
     /// Set by ActingState after tool execution, consumed by ObservingState
     pub last_observation:   Option<String>,
+
+    /// Multiple tool calls queued for parallel execution.
+    pub pending_tool_calls: Vec<ToolCall>,
+    /// Results from parallel tool execution.
+    pub parallel_results:   Vec<ToolResult>,
 
     // ── History and results ──────────────────────────────
     /// Ordered list of completed tool calls and their observations
@@ -56,6 +61,8 @@ impl AgentMemory {
             confidence_score:  1.0,
             current_tool_call: None,
             last_observation:  None,
+            pending_tool_calls: Vec::new(),
+            parallel_results:   Vec::new(),
             history:           Vec::new(),
             final_answer:      None,
             error:             None,
@@ -97,8 +104,7 @@ impl AgentMemory {
     }
 
     /// Builds the messages array to send to the LLM.
-    /// Implementors: include system prompt, compressed history summary (if any),
-    /// recent history entries, and the current task as the last user message.
+    /// Groups parallel tool calls into single assistant messages to comply with LLM protocols.
     pub fn build_messages(&self) -> Vec<serde_json::Value> {
         let mut messages = Vec::new();
 
@@ -110,24 +116,58 @@ impl AgentMemory {
             }));
         }
 
-        // History as assistant/tool messages
-        for entry in &self.history {
-            messages.push(serde_json::json!({
-                "role": "assistant",
-                "content": format!("Called tool '{}' with args {:?}",
-                    entry.tool.name, entry.tool.args)
-            }));
-            messages.push(serde_json::json!({
-                "role": "user",
-                "content": format!("Tool result: {}", entry.observation)
-            }));
-        }
-
-        // Current task
+        // Current task (the initial user request)
         messages.push(serde_json::json!({
             "role": "user",
             "content": &self.task
         }));
+
+        // History grouped by step
+        let mut steps: Vec<Vec<&HistoryEntry>> = Vec::new();
+        for entry in &self.history {
+            if let Some(last_step) = steps.last_mut() {
+                if last_step[0].step == entry.step {
+                    last_step.push(entry);
+                    continue;
+                }
+            }
+            steps.push(vec![entry]);
+        }
+
+        for step_entries in steps {
+            let mut oai_tool_calls = Vec::new();
+            let mut tool_results = Vec::new();
+
+            for entry in step_entries {
+                let tool_id = entry.tool.id.clone().unwrap_or_else(|| "legacy".to_string());
+                
+                oai_tool_calls.push(serde_json::json!({
+                    "id": tool_id,
+                    "type": "function",
+                    "function": {
+                        "name": entry.tool.name,
+                        "arguments": serde_json::to_string(&entry.tool.args).unwrap_or_default()
+                    }
+                }));
+
+                tool_results.push(serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": tool_id,
+                    "name": entry.tool.name,
+                    "content": entry.observation
+                }));
+            }
+
+            // 1. Assistant message with ALL tool calls from this step
+            messages.push(serde_json::json!({
+                "role": "assistant",
+                "content": null,
+                "tool_calls": oai_tool_calls
+            }));
+
+            // 2. Individual tool messages for each result
+            messages.extend(tool_results);
+        }
 
         messages
     }

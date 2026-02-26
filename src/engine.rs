@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 
 pub struct AgentEngine {
     pub memory:          AgentMemory,
-    pub tools:           ToolRegistry,
+    pub tools:           std::sync::Arc<ToolRegistry>,
     pub llm:             Box<dyn AsyncLlmCaller>,
     state:               State,
     transitions:         TransitionTable,
@@ -25,7 +25,7 @@ impl AgentEngine {
     /// Creates a new engine. Prefer using AgentBuilder for ergonomic construction.
     pub fn new(
         memory:          AgentMemory,
-        tools:           ToolRegistry,
+        tools:           std::sync::Arc<ToolRegistry>,
         llm:             Box<dyn AsyncLlmCaller>,
         transitions:     TransitionTable,
         handlers:        HashMap<String, Box<dyn AgentState>>,
@@ -120,12 +120,10 @@ impl AgentEngine {
                 return Some((msg, (engine, rx, tx, false)));
             }
 
-            // 2. Check if we've reached a terminal state.
+            // 2. Check if we've reached a terminal state AND channel is empty.
             if engine.terminal_states.contains(engine.state.as_str()) {
-                done = true;
-                // Try one last recv just in case
                 if let Ok(msg) = rx.try_recv() {
-                    return Some((msg, (engine, rx, tx, true)));
+                    return Some((msg, (engine, rx, tx, false)));
                 }
                 return None;
             }

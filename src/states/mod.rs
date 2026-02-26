@@ -1,13 +1,15 @@
 use crate::llm::AsyncLlmCaller;
-use crate::types::{AgentOutput, State};
+use crate::types::AgentOutput;
 use crate::memory::AgentMemory;
 use crate::tools::ToolRegistry;
+use std::sync::Arc;
 use crate::events::Event;
 use async_trait::async_trait;
 
 mod idle;
 mod planning;
 mod acting;
+mod parallel_acting;
 mod observing;
 mod reflecting;
 mod done;
@@ -16,6 +18,7 @@ mod error;
 pub use idle::IdleState;
 pub use planning::PlanningState;
 pub use acting::ActingState;
+pub use parallel_acting::ParallelActingState;
 pub use observing::ObservingState;
 pub use reflecting::ReflectingState;
 pub use done::DoneState;
@@ -49,7 +52,7 @@ pub trait AgentState: Send + Sync {
     async fn handle(
         &self,
         memory:    &mut AgentMemory,
-        tools:     &ToolRegistry,
+        tools:     &Arc<ToolRegistry>,
         llm:       &dyn AsyncLlmCaller,
         output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
     ) -> Event;

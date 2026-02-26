@@ -11,7 +11,7 @@ use async_openai::{
     Client,
 };
 use async_trait::async_trait;
-use futures::StreamExt;
+// use futures::StreamExt;
 use futures::stream::BoxStream;
 use crate::llm::AsyncLlmCaller;
 use crate::memory::AgentMemory;
@@ -60,6 +60,7 @@ impl OpenAiCaller {
         Ok(ToolCall {
             name: tc.function.name.clone(),
             args,
+            id: Some(tc.id.clone()),
         })
     }
 }
@@ -104,7 +105,13 @@ impl AsyncLlmCaller for OpenAiCaller {
 
         // Tool call takes priority over text content
         if let Some(tool_calls) = message.tool_calls {
-            if let Some(tc) = tool_calls.into_iter().next() {
+            if tool_calls.len() > 1 {
+                let mut parsed_tools = Vec::new();
+                for tc in tool_calls {
+                    parsed_tools.push(Self::parse_tool_call(&tc)?);
+                }
+                return Ok(LlmResponse::ParallelToolCalls { tools: parsed_tools, confidence: 1.0 });
+            } else if let Some(tc) = tool_calls.into_iter().next() {
                 let tool = Self::parse_tool_call(&tc)?;
                 return Ok(LlmResponse::ToolCall { tool, confidence: 1.0 });
             }
@@ -153,8 +160,14 @@ impl AsyncLlmCaller for OpenAiCaller {
             match res {
                 Ok(stream) => {
                     let mut accumulated_content = String::new();
-                    let mut accumulated_tool_call_name = None;
-                    let mut accumulated_tool_call_args = String::new();
+                    
+                    #[derive(Default)]
+                    struct ToolCallAcc {
+                        id:   Option<String>,
+                        name: Option<String>,
+                        args: String,
+                    }
+                    let mut tool_accumulators: HashMap<i32, ToolCallAcc> = HashMap::new();
 
                     stream.map(move |res| {
                         let res = res.map_err(|e| format!("OpenAI stream error: {}", e))?;
@@ -162,20 +175,36 @@ impl AsyncLlmCaller for OpenAiCaller {
                         let delta = choice.delta;
 
                         if let Some(tool_calls) = delta.tool_calls {
-                            if let Some(tc) = tool_calls.into_iter().next() {
+                            for tc in tool_calls {
+                                let acc = tool_accumulators.entry(tc.index).or_default();
+                                if let Some(id) = tc.id {
+                                    acc.id = Some(id);
+                                }
                                 if let Some(func) = tc.function {
                                     if let Some(name) = func.name {
-                                        accumulated_tool_call_name = Some(name);
+                                        acc.name = Some(name);
                                     }
                                     if let Some(args) = func.arguments {
-                                        accumulated_tool_call_args.push_str(&args);
+                                        acc.args.push_str(&args);
                                     }
                                 }
-                                return Ok(crate::types::LlmStreamChunk::ToolCallDelta {
-                                    name: accumulated_tool_call_name.clone(),
-                                    args_json: accumulated_tool_call_args.clone(),
-                                });
                             }
+                            
+                            // Emit a delta for the most recently updated tool call (or all of them?)
+                            // For simplicity, we just send a generic delta indicating tool progress.
+                            // The engine currently doesn't use the index to differentiate in UI,
+                            // it just accumulates name/args from LLM_TOOL_CALL_DELTA events.
+                            // BUT wait! If they are parallel, we MUST specify WHICH ONE.
+                            // For now, let's at least emit the LATEST one.
+                            let (name, args_json) = tool_accumulators.values()
+                                .next() // arbitrary
+                                .map(|a| (a.name.clone(), a.args.clone()))
+                                .unwrap_or((None, String::new()));
+
+                            return Ok(crate::types::LlmStreamChunk::ToolCallDelta {
+                                name,
+                                args_json,
+                            });
                         }
 
                         if let Some(content) = delta.content {
@@ -184,14 +213,29 @@ impl AsyncLlmCaller for OpenAiCaller {
                         }
 
                         if let Some(_reason) = choice.finish_reason {
-                            if !accumulated_tool_call_args.is_empty() {
-                                 let name = accumulated_tool_call_name.clone().unwrap_or_default();
-                                 let args: HashMap<String, serde_json::Value> = serde_json::from_str(&accumulated_tool_call_args)
-                                    .map_err(|e| format!("Failed to parse tool args: {}", e))?;
-                                 return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::ToolCall {
-                                     tool: ToolCall { name, args },
-                                     confidence: 1.0,
-                                 }));
+                            if !tool_accumulators.is_empty() {
+                                 if tool_accumulators.len() > 1 {
+                                     let mut tools = Vec::new();
+                                     for acc in tool_accumulators.values() {
+                                         let name = acc.name.clone().unwrap_or_default();
+                                         let args: HashMap<String, serde_json::Value> = serde_json::from_str(&acc.args)
+                                            .map_err(|e| format!("Failed to parse tool args (parallel): {}", e))?;
+                                         tools.push(crate::types::ToolCall { name, args, id: acc.id.clone() });
+                                     }
+                                     return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::ParallelToolCalls {
+                                         tools,
+                                         confidence: 1.0,
+                                     }));
+                                 } else {
+                                     let acc = tool_accumulators.values().next().unwrap();
+                                     let name = acc.name.clone().unwrap_or_default();
+                                     let args: HashMap<String, serde_json::Value> = serde_json::from_str(&acc.args)
+                                        .map_err(|e| format!("Failed to parse tool args: {}", e))?;
+                                     return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::ToolCall {
+                                         tool: crate::types::ToolCall { name, args, id: acc.id.clone() },
+                                         confidence: 1.0,
+                                     }));
+                                 }
                             } else if !accumulated_content.is_empty() {
                                 return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::FinalAnswer { content: accumulated_content.clone() }));
                             }

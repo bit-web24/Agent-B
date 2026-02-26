@@ -33,6 +33,7 @@ impl Event {
 
     // Planning outcomes
     pub fn llm_tool_call()   -> Self { Self::new("LlmToolCall") }
+    pub fn llm_parallel_tool_calls() -> Self { Self::new("LlmParallelToolCalls") }
     pub fn llm_final_answer()-> Self { Self::new("LlmFinalAnswer") }
     pub fn max_steps()       -> Self { Self::new("MaxSteps") }
     pub fn low_confidence()  -> Self { Self::new("LowConfidence") }

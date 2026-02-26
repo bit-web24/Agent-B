@@ -6,9 +6,12 @@
 use agentsm::{
     AgentBuilder, AgentConfig, AgentEngine, AgentError,
     Event, LlmResponse, State, ToolCall,
-    ToolRegistry,
+    ToolRegistry, AgentOutput, LlmStreamChunk,
 };
+use agentsm::llm::AsyncLlmCaller;
+use async_trait::async_trait;
 use agentsm::llm::MockLlmCaller;
+use std::sync::Arc;
 use agentsm::memory::AgentMemory;
 use agentsm::states::{
     AgentState, IdleState, PlanningState, ActingState,
@@ -76,14 +79,15 @@ fn make_bare_engine(mock: MockLlmCaller) -> AgentEngine {
 // Test 1: IdleState produces Event::start() → Planning
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_idle_to_planning_transition() {
+#[tokio::test]
+async fn test_idle_to_planning_transition() {
     let mut memory = test_memory();
     let tools      = test_tools();
     let llm        = make_mock_llm(vec![make_final_answer("The answer to life is 42.")]);
 
     let idle = IdleState;
-    let event = idle.handle(&mut memory, &tools, &llm);
+    let tools = Arc::new(tools);
+    let event = idle.handle(&mut memory, &tools, &llm, None).await;
 
     assert_eq!(event, Event::start(), "IdleState must emit Event::start()");
 
@@ -97,8 +101,8 @@ fn test_idle_to_planning_transition() {
 // Test 2: PlanningState max-steps guard
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_planning_max_steps_guard() {
+#[tokio::test]
+async fn test_planning_max_steps_guard() {
     let mut memory = test_memory();
     memory.step = memory.config.max_steps; // already at the limit
 
@@ -106,7 +110,8 @@ fn test_planning_max_steps_guard() {
     let llm   = make_mock_llm(vec![]);  // Should never be called
 
     let state = PlanningState;
-    let event = state.handle(&mut memory, &tools, &llm);
+    let tools = Arc::new(tools);
+    let event = state.handle(&mut memory, &tools, &llm, None).await;
 
     assert_eq!(event, Event::max_steps(), "PlanningState must return MaxSteps when step >= max_steps");
     assert!(memory.error.is_some(), "memory.error must be set on MaxSteps");
@@ -116,8 +121,8 @@ fn test_planning_max_steps_guard() {
 // Test 3: PlanningState rejects blacklisted tools
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_planning_tool_blacklist() {
+#[tokio::test]
+async fn test_planning_tool_blacklist() {
     let mut engine = AgentBuilder::new("test blacklist")
         .llm(Box::new(make_mock_llm(vec![
             // First response requests the blacklisted tool
@@ -135,7 +140,7 @@ fn test_planning_tool_blacklist() {
         .build()
         .expect("builder should succeed");
 
-    let result = engine.run();
+    let result = engine.run().await;
     assert!(result.is_ok(), "Agent should complete despite blacklisted tool call: {:?}", result);
 
     // Verify the trace contains the blacklist event
@@ -150,8 +155,8 @@ fn test_planning_tool_blacklist() {
 // Test 4: ActingState treats unknown tool as ToolFailure, not crash
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_acting_unknown_tool_is_failure_not_crash() {
+#[tokio::test]
+async fn test_acting_unknown_tool_is_failure_not_crash() {
     let mut memory = test_memory();
     memory.current_tool_call = Some(ToolCall {
         name: "nonexistent_tool".to_string(),
@@ -162,7 +167,8 @@ fn test_acting_unknown_tool_is_failure_not_crash() {
     let llm   = make_mock_llm(vec![]);
 
     let state = ActingState;
-    let event = state.handle(&mut memory, &tools, &llm);
+    let tools = Arc::new(tools);
+    let event = state.handle(&mut memory, &tools, &llm, None).await;
 
     assert_eq!(event, Event::tool_failure(), "Unknown tool must produce ToolFailure, not FatalError or panic");
     assert!(
@@ -175,8 +181,8 @@ fn test_acting_unknown_tool_is_failure_not_crash() {
 // Test 5: ObservingState triggers reflection at the configured step interval
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_observing_triggers_reflection_at_step_5() {
+#[tokio::test]
+async fn test_observing_triggers_reflection_at_step_5() {
     let mut memory = test_memory();
     memory.config.reflect_every_n_steps = 5;
     memory.step = 5; // exactly at the boundary
@@ -192,7 +198,8 @@ fn test_observing_triggers_reflection_at_step_5() {
     let llm   = make_mock_llm(vec![]);
 
     let state = ObservingState;
-    let event = state.handle(&mut memory, &tools, &llm);
+    let tools = Arc::new(tools);
+    let event = state.handle(&mut memory, &tools, &llm, None).await;
 
     assert_eq!(event, Event::needs_reflection(), "ObservingState must emit NeedsReflection at step % interval == 0");
 }
@@ -201,8 +208,8 @@ fn test_observing_triggers_reflection_at_step_5() {
 // Test 6: ObservingState commits tool call + observation to history
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_observing_commits_to_history() {
+#[tokio::test]
+async fn test_observing_commits_to_history() {
     let mut memory = test_memory();
     memory.config.reflect_every_n_steps = 0; // Disable reflection triggering
     memory.step = 1;
@@ -219,7 +226,8 @@ fn test_observing_commits_to_history() {
     let llm   = make_mock_llm(vec![]);
 
     let state = ObservingState;
-    let event = state.handle(&mut memory, &tools, &llm);
+    let tools = Arc::new(tools);
+    let event = state.handle(&mut memory, &tools, &llm, None).await;
 
     assert_eq!(event, Event::r#continue(), "ObservingState should return Continue between reflections");
     assert_eq!(memory.history.len(), 1, "One HistoryEntry should be committed");
@@ -233,8 +241,8 @@ fn test_observing_commits_to_history() {
 // Test 7: Full run with MockLlmCaller: tool call + final answer
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_full_run_with_mock_llm() {
+#[tokio::test]
+async fn test_full_run_with_mock_llm() {
     let mock = make_mock_llm(vec![
         // Step 1: LLM requests the dummy tool
         make_tool_call_response("dummy"),
@@ -243,7 +251,7 @@ fn test_full_run_with_mock_llm() {
     ]);
 
     let mut engine = make_engine_with_mock(mock);
-    let result = engine.run();
+    let result = engine.run().await;
 
     assert!(result.is_ok(), "Agent should complete successfully: {:?}", result);
     let answer = result.unwrap();
@@ -255,15 +263,15 @@ fn test_full_run_with_mock_llm() {
 // Test 8: Full run ends in Done state
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_full_run_reaches_done_state() {
+#[tokio::test]
+async fn test_full_run_reaches_done_state() {
     let mock = make_mock_llm(vec![
         make_tool_call_response("dummy"),
         make_final_answer("This is the complete final answer to the test question."),
     ]);
 
     let mut engine = make_engine_with_mock(mock);
-    let result = engine.run();
+    let result = engine.run().await;
 
     assert!(result.is_ok(), "Agent should complete: {:?}", result);
     assert_eq!(
@@ -276,8 +284,8 @@ fn test_full_run_reaches_done_state() {
 // Test 9: Invalid (State, Event) pair is caught, not panicked
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_invalid_transition_returns_error() {
+#[tokio::test]
+async fn test_invalid_transition_returns_error() {
     // Directly test that PlanningState fires MaxSteps when step >= max_steps,
     // bypassing engine loop complexities.
     let mut memory = test_memory();
@@ -288,7 +296,8 @@ fn test_invalid_transition_returns_error() {
     let llm   = make_mock_llm(vec![]); // should never be called
 
     let state = PlanningState;
-    let event = state.handle(&mut memory, &tools, &llm);
+    let tools = Arc::new(tools);
+    let event = state.handle(&mut memory, &tools, &llm, None).await;
 
     assert_eq!(event, Event::max_steps(), "PlanningState must emit MaxSteps when step >= max_steps");
     assert!(memory.error.is_some(), "memory.error must be set");
@@ -303,15 +312,15 @@ fn test_invalid_transition_returns_error() {
 // Test 10: Trace records all steps
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_trace_records_all_steps() {
+#[tokio::test]
+async fn test_trace_records_all_steps() {
     let mock = make_mock_llm(vec![
         make_tool_call_response("dummy"),
         make_final_answer("Trace test complete answer value here."),
     ]);
 
     let mut engine = make_engine_with_mock(mock);
-    engine.run().expect("Agent should complete");
+    engine.run().await.expect("Agent should complete");
 
     let trace = engine.trace();
     assert!(trace.len() > 0, "Trace must not be empty after a run");
@@ -331,8 +340,8 @@ fn test_trace_records_all_steps() {
 // Test 11: ToolRegistry returns Err for unknown tool, does not panic
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_tool_registry_execute_unknown_returns_err() {
+#[tokio::test]
+async fn test_tool_registry_execute_unknown_returns_err() {
     let registry = ToolRegistry::new(); // empty registry
     let args     = HashMap::new();
 
@@ -347,8 +356,8 @@ fn test_tool_registry_execute_unknown_returns_err() {
 // Test 12: MockLlmCaller.call_count() matches actual LLM invocations
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_mock_llm_call_count() {
+#[tokio::test]
+async fn test_mock_llm_call_count() {
     let mock = make_mock_llm(vec![
         make_tool_call_response("dummy"),  // call 1
         make_tool_call_response("dummy"),  // call 2
@@ -369,7 +378,7 @@ fn test_mock_llm_call_count() {
     };
 
     let mut engine = make_engine_with_mock(mock_ref);
-    engine.run().expect("Agent should complete");
+    engine.run().await.expect("Agent should complete");
 
     // Verify via trace: Planning state should have 3 STEP_START entries
     let planning_steps: Vec<_> = engine.trace()
@@ -397,8 +406,8 @@ fn test_mock_llm_call_count() {
 // Test 13: AgentConfig max_steps is respected
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_agent_config_respected() {
+#[tokio::test]
+async fn test_agent_config_respected() {
     // Directly verify via PlanningState: when step >= max_steps, MaxSteps fires.
     // This tests the config contract without fighting the safety cap.
     let mut memory = test_memory();
@@ -409,7 +418,8 @@ fn test_agent_config_respected() {
     let llm   = make_mock_llm(vec![]);
 
     let state = PlanningState;
-    let event = state.handle(&mut memory, &tools, &llm);
+    let tools = Arc::new(tools);
+    let event = state.handle(&mut memory, &tools, &llm, None).await;
 
     assert_eq!(event, Event::max_steps(), "AgentConfig max_steps must be enforced by PlanningState");
     assert!(
@@ -422,8 +432,8 @@ fn test_agent_config_respected() {
 // Test 14: AgentBuilder requires an LLM caller
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_builder_requires_llm() {
+#[tokio::test]
+async fn test_builder_requires_llm() {
     // Do NOT call .llm() — should produce BuildError
     let result = AgentBuilder::new("test no llm").build();
 
@@ -445,8 +455,8 @@ fn test_builder_requires_llm() {
 // Test 15: Tool builder produces a valid JSON Schema
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_tool_builder_produces_valid_schema() {
+#[tokio::test]
+async fn test_tool_builder_produces_valid_schema() {
     use agentsm::Tool;
 
     let tool = Tool::new("search", "Search the web for information")
@@ -502,8 +512,8 @@ fn test_tool_builder_produces_valid_schema() {
 // Test 16: Tool builder works with AgentBuilder::add_tool()
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_add_tool_with_builder() {
+#[tokio::test]
+async fn test_add_tool_with_builder() {
     use agentsm::Tool;
 
     let mock = make_mock_llm(vec![
@@ -524,7 +534,7 @@ fn test_add_tool_with_builder() {
         .build()
         .expect("build should succeed");
 
-    let result = engine.run();
+    let result = engine.run().await;
     assert!(result.is_ok(), "Agent should complete: {:?}", result.err());
 }
 
@@ -532,8 +542,8 @@ fn test_add_tool_with_builder() {
 // Test 17: RetryingLlmCaller recovers from transient errors
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_retry_recovers_after_transient_error() {
+#[tokio::test]
+async fn test_retry_recovers_after_transient_error() {
     use agentsm::llm::MockLlmCaller;
     use agentsm::RetryingLlmCaller;
     use agentsm::llm::LlmCaller;
@@ -547,6 +557,21 @@ fn test_retry_recovers_after_transient_error() {
     struct FailNTimesCaller {
         fail_count: Arc<AtomicUsize>,
         failures_left: usize,
+    }
+
+    #[async_trait]
+    impl agentsm::llm::AsyncLlmCaller for FailNTimesCaller {
+        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str) -> Result<LlmResponse, String> {
+             agentsm::llm::LlmCaller::call(self, memory, tools, model)
+        }
+        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
+            use futures::stream::{self, StreamExt};
+            let resp = agentsm::llm::LlmCaller::call(self, m, t, mo);
+            match resp {
+                Ok(r) => stream::once(async move { Ok(LlmStreamChunk::Done(r)) }).boxed(),
+                Err(e) => stream::once(async move { Err(e) }).boxed(),
+            }
+        }
     }
 
     impl LlmCaller for FailNTimesCaller {
@@ -568,7 +593,7 @@ fn test_retry_recovers_after_transient_error() {
     }
 
     let counter = Arc::new(AtomicUsize::new(0));
-    let inner: Box<dyn LlmCaller> = Box::new(FailNTimesCaller {
+    let inner: Box<dyn agentsm::llm::AsyncLlmCaller> = Box::new(FailNTimesCaller {
         fail_count: counter.clone(),
         failures_left: 2,
     });
@@ -577,7 +602,7 @@ fn test_retry_recovers_after_transient_error() {
     let memory = test_memory();
     let tools  = test_tools();
 
-    let result = retrying.call(&memory, &tools, "test-model");
+    let result = retrying.call_async(&memory, &tools, "test-model").await;
     assert!(result.is_ok(), "Should recover after transient errors: {:?}", result);
     assert_eq!(counter.load(Ordering::SeqCst), 3, "Should have been called 3 times total");
 }
@@ -586,8 +611,8 @@ fn test_retry_recovers_after_transient_error() {
 // Test 18: RetryingLlmCaller fails fast on auth errors
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_retry_auth_error_fails_fast() {
+#[tokio::test]
+async fn test_retry_auth_error_fails_fast() {
     use agentsm::RetryingLlmCaller;
     use agentsm::llm::LlmCaller;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -595,6 +620,21 @@ fn test_retry_auth_error_fails_fast() {
 
     struct AuthErrorCaller {
         call_count: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl agentsm::llm::AsyncLlmCaller for AuthErrorCaller {
+        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str) -> Result<LlmResponse, String> {
+             agentsm::llm::LlmCaller::call(self, memory, tools, model)
+        }
+        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
+            use futures::stream::{self, StreamExt};
+            let resp = agentsm::llm::LlmCaller::call(self, m, t, mo);
+            match resp {
+                Ok(r) => stream::once(async move { Ok(LlmStreamChunk::Done(r)) }).boxed(),
+                Err(e) => stream::once(async move { Err(e) }).boxed(),
+            }
+        }
     }
 
     impl LlmCaller for AuthErrorCaller {
@@ -610,7 +650,7 @@ fn test_retry_auth_error_fails_fast() {
     }
 
     let counter = Arc::new(AtomicUsize::new(0));
-    let inner: Box<dyn LlmCaller> = Box::new(AuthErrorCaller {
+    let inner: Box<dyn agentsm::llm::AsyncLlmCaller> = Box::new(AuthErrorCaller {
         call_count: counter.clone(),
     });
     let retrying = RetryingLlmCaller::new(inner, 5);
@@ -618,7 +658,7 @@ fn test_retry_auth_error_fails_fast() {
     let memory = test_memory();
     let tools  = test_tools();
 
-    let result = retrying.call(&memory, &tools, "test-model");
+    let result = retrying.call_async(&memory, &tools, "test-model").await;
     assert!(result.is_err(), "Auth errors should not be retried");
     assert_eq!(counter.load(Ordering::SeqCst), 1, "Should only be called once — no retry");
     assert!(result.unwrap_err().contains("401"));
@@ -628,22 +668,24 @@ fn test_retry_auth_error_fails_fast() {
 // Test 19: Custom state graph — user-defined states, events, and transitions
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_custom_state_graph() {
+#[tokio::test]
+async fn test_custom_state_graph() {
     use agentsm::llm::LlmCaller;
 
     /// A custom state that simulates "researching" work.
     /// It logs a trace entry and emits a custom "ResearchDone" event.
     struct ResearchingState;
 
+    #[async_trait]
     impl AgentState for ResearchingState {
         fn name(&self) -> &'static str { "Researching" }
 
-        fn handle(
+        async fn handle(
             &self,
-            memory: &mut AgentMemory,
-            _tools: &ToolRegistry,
-            _llm:   &dyn LlmCaller,
+            memory:    &mut AgentMemory,
+            _tools:    &std::sync::Arc<ToolRegistry>,
+            _llm:      &dyn agentsm::llm::AsyncLlmCaller,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             memory.log("Researching", "RESEARCH_COMPLETE", "Custom research work done");
             // Emit a custom event
@@ -655,6 +697,21 @@ fn test_custom_state_graph() {
     /// then returns a final answer.
     struct ResearchTriggerLlm {
         call_count: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl agentsm::llm::AsyncLlmCaller for ResearchTriggerLlm {
+        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str) -> Result<LlmResponse, String> {
+             self.call(memory, tools, model)
+        }
+        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
+            use futures::stream::{self, StreamExt};
+            let resp = self.call(m, t, mo);
+            match resp {
+                Ok(r) => stream::once(async move { Ok(LlmStreamChunk::Done(r)) }).boxed(),
+                Err(e) => stream::once(async move { Err(e) }).boxed(),
+            }
+        }
     }
 
     impl LlmCaller for ResearchTriggerLlm {
@@ -689,14 +746,16 @@ fn test_custom_state_graph() {
         call_count: std::sync::atomic::AtomicUsize,
     }
 
+    #[async_trait]
     impl AgentState for CustomPlanningState {
         fn name(&self) -> &'static str { "Planning" }
 
-        fn handle(
+        async fn handle(
             &self,
-            memory: &mut AgentMemory,
-            _tools: &ToolRegistry,
-            _llm:   &dyn LlmCaller,
+            memory:    &mut AgentMemory,
+            _tools:    &std::sync::Arc<ToolRegistry>,
+            _llm:      &dyn agentsm::llm::AsyncLlmCaller,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             let count = self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             memory.step += 1;
@@ -733,7 +792,7 @@ fn test_custom_state_graph() {
         .build()
         .expect("build with custom states should succeed");
 
-    let result = engine.run();
+    let result = engine.run().await;
     assert!(result.is_ok(), "Agent with custom states should complete: {:?}", result);
     assert_eq!(engine.current_state(), &State::done());
 
@@ -759,21 +818,23 @@ fn test_custom_state_graph() {
 // Test 20: Custom terminal state
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn test_custom_terminal_state() {
+#[tokio::test]
+async fn test_custom_terminal_state() {
     use agentsm::llm::LlmCaller;
 
     /// A custom state that is terminal — the engine should exit here.
     struct CustomDoneState;
 
+    #[async_trait]
     impl AgentState for CustomDoneState {
         fn name(&self) -> &'static str { "CustomDone" }
 
-        fn handle(
+        async fn handle(
             &self,
-            memory: &mut AgentMemory,
-            _tools: &ToolRegistry,
-            _llm:   &dyn LlmCaller,
+            memory:    &mut AgentMemory,
+            _tools:    &std::sync::Arc<ToolRegistry>,
+            _llm:      &dyn agentsm::llm::AsyncLlmCaller,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             memory.final_answer = Some("Custom terminal state reached!".to_string());
             memory.log("CustomDone", "CUSTOM_COMPLETE", "Done via custom terminal");
@@ -784,14 +845,16 @@ fn test_custom_terminal_state() {
     /// Custom planning that immediately routes to CustomDone
     struct ImmediateCustomDonePlanning;
 
+    #[async_trait]
     impl AgentState for ImmediateCustomDonePlanning {
         fn name(&self) -> &'static str { "Planning" }
 
-        fn handle(
+        async fn handle(
             &self,
-            memory: &mut AgentMemory,
-            _tools: &ToolRegistry,
-            _llm:   &dyn LlmCaller,
+            memory:    &mut AgentMemory,
+            _tools:    &std::sync::Arc<ToolRegistry>,
+            _llm:      &dyn agentsm::llm::AsyncLlmCaller,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             memory.step += 1;
             memory.final_answer = Some("Routed to custom done!".to_string());
@@ -811,10 +874,21 @@ fn test_custom_terminal_state() {
         .build()
         .expect("build should succeed");
 
-    let result = engine.run();
+    let result = engine.run().await;
     assert!(result.is_ok(), "Agent should complete via custom terminal state: {:?}", result);
 
     let answer = result.unwrap();
     assert!(answer.contains("custom done"), "Final answer should mention custom done");
     assert_eq!(engine.current_state(), &State::new("CustomDone"));
+}
+#[tokio::test]
+async fn test_full_run_async_streaming() {
+    let mock = make_mock_llm(vec![
+        make_final_answer("Hello async world!"),
+    ]);
+
+    let mut engine = make_engine_with_mock(mock);
+    let result = engine.run().await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), "Hello async world!");
 }

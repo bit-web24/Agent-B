@@ -16,7 +16,7 @@ impl AgentState for ReflectingState {
     async fn handle(
         &self,
         memory:    &mut AgentMemory,
-        _tools:    &ToolRegistry,
+        _tools:    &std::sync::Arc<ToolRegistry>,
         _llm:      &dyn AsyncLlmCaller,
         output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
     ) -> Event {
@@ -44,6 +44,7 @@ impl AgentState for ReflectingState {
             tool: ToolCall {
                 name: "[SUMMARY]".to_string(),
                 args: HashMap::new(),
+                id:   None,
             },
             observation: summary,
             success: true,
