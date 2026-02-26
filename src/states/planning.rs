@@ -132,6 +132,15 @@ impl AgentState for PlanningState {
             return Event::max_steps();
         }
 
+        // 2. Guard: Token Budget
+        if let Some(budget) = memory.budget {
+            if budget.is_exceeded(memory.total_usage) {
+                memory.error = Some("Token budget exceeded".to_string());
+                memory.log("Planning", "BUDGET_EXCEEDED", &format!("{:?}", memory.total_usage));
+                return Event::fatal_error();
+            }
+        }
+
         // 2. Increment step
         memory.step += 1;
         memory.log("Planning", "STEP_START", &format!("step={}/{}", memory.step, memory.config.max_steps));
@@ -141,29 +150,34 @@ impl AgentState for PlanningState {
 
         // 4. Call LLM (non-streaming for reliability with all providers)
         let resp_res = llm.call_async(memory, tools, &model).await;
+
+        let resp = match resp_res {
+            Ok(r) => r,
+            Err(err) => {
+                memory.error = Some(format!("LLM error: {}", err));
+                memory.log("Planning", "LLM_ERROR", &err);
+                return Event::fatal_error();
+            }
+        };
+
+        // Update total usage
+        let (LlmResponse::ToolCall { usage, .. } |
+               LlmResponse::ParallelToolCalls { usage, .. } |
+               LlmResponse::FinalAnswer { usage, .. }) = &resp;
         
-        if let Err(err) = resp_res {
-            memory.error = Some(format!("LLM error: {}", err));
-            memory.log("Planning", "LLM_ERROR", &err);
-            return Event::fatal_error();
+        if let Some(u) = usage {
+            memory.total_usage.add(*u);
         }
 
-        let final_response = Some(resp_res.unwrap());
-
-        match final_response {
-            Some(LlmResponse::ToolCall { tool, confidence }) => {
+        match resp {
+            LlmResponse::ToolCall { tool, confidence, .. } => {
                 self.handle_tool_call(memory, tool, confidence)
             }
-            Some(LlmResponse::ParallelToolCalls { tools, confidence }) => {
+            LlmResponse::ParallelToolCalls { tools, confidence, .. } => {
                 self.handle_parallel_tool_calls(memory, tools, confidence)
             }
-            Some(LlmResponse::FinalAnswer { content }) => {
+            LlmResponse::FinalAnswer { content, .. } => {
                 self.handle_final_answer(memory, content, output_tx)
-            }
-            None => {
-                memory.error = Some("LLM stream ended without Done chunk".to_string());
-                memory.log("Planning", "LLM_ERROR", "End of stream without response");
-                Event::fatal_error()
             }
         }
     }

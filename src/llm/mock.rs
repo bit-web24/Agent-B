@@ -36,32 +36,7 @@ impl crate::llm::AsyncLlmCaller for MockLlmCaller {
     async fn call_async(
         &self,
         memory: &AgentMemory,
-        tools:  &ToolRegistry,
-        model:  &str,
-    ) -> Result<LlmResponse, String> {
-        self.call(memory, tools, model)
-    }
-
-    fn call_stream_async<'a>(
-        &'a self,
-        memory: &'a AgentMemory,
-        tools:  &'a ToolRegistry,
-        model:  &'a str,
-    ) -> futures::stream::BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
-        let resp = self.call(memory, tools, model);
-        use futures::stream::{self, StreamExt};
-        match resp {
-            Ok(r) => stream::once(async move { Ok(crate::types::LlmStreamChunk::Done(r)) }).boxed(),
-            Err(e) => stream::once(async move { Err(e) }).boxed(),
-        }
-    }
-}
-
-impl LlmCaller for MockLlmCaller {
-    fn call(
-        &self,
-        memory: &AgentMemory,
-        _tools: &ToolRegistry,
+        _tools:  &ToolRegistry,
         model:  &str,
     ) -> Result<LlmResponse, String> {
         self.call_log.lock().unwrap()
@@ -71,6 +46,28 @@ impl LlmCaller for MockLlmCaller {
         if responses.is_empty() {
             return Err("MockLlmCaller: no more programmed responses".to_string());
         }
-        Ok(responses.remove(0))
+        let resp = responses.remove(0);
+        Ok(resp)
+    }
+
+    fn call_stream_async<'a>(
+        &'a self,
+        memory: &'a AgentMemory,
+        _tools:  &'a ToolRegistry,
+        model:  &'a str,
+    ) -> futures::stream::BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
+        use futures::stream::{self, StreamExt};
+        let (task, model_s) = (memory.task.clone(), model.to_string());
+        
+        // We can't easily call self.call_async here because of lifetimes in stream::once
+        // So we just do the logic.
+        let mut responses = self.responses.lock().unwrap();
+        self.call_log.lock().unwrap().push((model_s, task));
+        
+        if responses.is_empty() {
+            return stream::once(async move { Err("MockLlmCaller: no more programmed responses".to_string()) }).boxed();
+        }
+        let resp = responses.remove(0);
+        stream::once(async move { Ok(crate::types::LlmStreamChunk::Done(resp)) }).boxed()
     }
 }

@@ -3,6 +3,7 @@ use agentsm::llm::MockLlmCaller;
 use agentsm::human::{ApprovalPolicy, RiskLevel, HumanDecision, HumanApprovalRequest};
 use agentsm::types::{LlmResponse, ToolCall};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_human_approval_flow() {
@@ -19,9 +20,11 @@ async fn test_human_approval_flow() {
                 id: Some("call_1".to_string()),
             },
             confidence: 1.0,
+            usage:      None,
         },
         LlmResponse::FinalAnswer {
             content: "I have deleted the database as requested.".to_string(),
+            usage:   None,
         },
     ];
     let mock_llm = MockLlmCaller::new(responses);
@@ -33,7 +36,7 @@ async fn test_human_approval_flow() {
 
     // 4. Build agent with HIP
     let mut agent = AgentBuilder::new("Delete the database")
-        .llm(Box::new(mock_llm))
+        .llm(Arc::new(mock_llm))
         .add_tool(unsafe_tool)
         .approval_policy(policy)
         .on_approval(|req: HumanApprovalRequest| {
@@ -66,9 +69,11 @@ async fn test_human_rejection_flow() {
                 id: Some("call_1".to_string()),
             },
             confidence: 1.0,
+            usage:      None,
         },
         LlmResponse::FinalAnswer {
             content: "I couldn't delete the database because you rejected it.".to_string(),
+            usage:   None,
         },
     ];
     let mock_llm = MockLlmCaller::new(responses);
@@ -76,7 +81,7 @@ async fn test_human_rejection_flow() {
     let policy = ApprovalPolicy::AlwaysAsk;
 
     let mut agent = AgentBuilder::new("Delete the database")
-        .llm(Box::new(mock_llm))
+        .llm(Arc::new(mock_llm))
         .add_tool(unsafe_tool)
         .approval_policy(policy)
         .on_approval(|req| {
@@ -108,9 +113,11 @@ async fn test_human_modification_flow() {
                 id: Some("call_1".to_string()),
             },
             confidence: 1.0,
+            usage:      None,
         },
         LlmResponse::FinalAnswer {
             content: "Here are the files...".to_string(),
+            usage:   None,
         },
     ];
     let mock_llm = MockLlmCaller::new(responses);
@@ -118,7 +125,7 @@ async fn test_human_modification_flow() {
     let policy = ApprovalPolicy::AlwaysAsk;
 
     let mut agent = AgentBuilder::new("List files")
-        .llm(Box::new(mock_llm))
+        .llm(Arc::new(mock_llm))
         .add_tool(safe_tool)
         .approval_policy(policy)
         .on_approval(|_req| {

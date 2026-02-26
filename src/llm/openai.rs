@@ -98,6 +98,10 @@ impl AsyncLlmCaller for OpenAiCaller {
             .await
             .map_err(|e| format!("OpenAI API error: {}", e))?;
 
+        let usage = response.usage.map(|u| {
+            crate::budget::TokenUsage::new(u.prompt_tokens, u.completion_tokens)
+        });
+
         let choice = response.choices.into_iter().next()
             .ok_or("Empty response from OpenAI")?;
 
@@ -110,17 +114,25 @@ impl AsyncLlmCaller for OpenAiCaller {
                 for tc in tool_calls {
                     parsed_tools.push(Self::parse_tool_call(&tc)?);
                 }
-                return Ok(LlmResponse::ParallelToolCalls { tools: parsed_tools, confidence: 1.0 });
+                return Ok(LlmResponse::ParallelToolCalls { 
+                    tools: parsed_tools, 
+                    confidence: 1.0,
+                    usage 
+                });
             } else if let Some(tc) = tool_calls.into_iter().next() {
                 let tool = Self::parse_tool_call(&tc)?;
-                return Ok(LlmResponse::ToolCall { tool, confidence: 1.0 });
+                return Ok(LlmResponse::ToolCall { 
+                    tool, 
+                    confidence: 1.0, 
+                    usage 
+                });
             }
         }
 
         let content = message.content
             .ok_or("No content in OpenAI response")?;
 
-        Ok(LlmResponse::FinalAnswer { content })
+        Ok(LlmResponse::FinalAnswer { content, usage })
     }
 
     fn call_stream_async<'a>(
@@ -222,9 +234,10 @@ impl AsyncLlmCaller for OpenAiCaller {
                                             .map_err(|e| format!("Failed to parse tool args (parallel): {}", e))?;
                                          tools.push(crate::types::ToolCall { name, args, id: acc.id.clone() });
                                      }
-                                     return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::ParallelToolCalls {
+                                      return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::ParallelToolCalls {
                                          tools,
                                          confidence: 1.0,
+                                         usage: None,
                                      }));
                                  } else {
                                      let acc = tool_accumulators.values().next().unwrap();
@@ -234,10 +247,11 @@ impl AsyncLlmCaller for OpenAiCaller {
                                      return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::ToolCall {
                                          tool: crate::types::ToolCall { name, args, id: acc.id.clone() },
                                          confidence: 1.0,
+                                         usage: None,
                                      }));
                                  }
                             } else if !accumulated_content.is_empty() {
-                                return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::FinalAnswer { content: accumulated_content.clone() }));
+                                return Ok(crate::types::LlmStreamChunk::Done(LlmResponse::FinalAnswer { content: accumulated_content.clone(), usage: None }));
                             }
                         }
 

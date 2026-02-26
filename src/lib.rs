@@ -11,6 +11,8 @@ pub mod states;
 pub mod llm;
 pub mod mcp;
 pub mod human;
+pub mod checkpoint;
+pub mod budget;
 
 // Convenience re-exports at crate root
 pub use builder::AgentBuilder;

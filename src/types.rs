@@ -100,15 +100,18 @@ pub enum LlmResponse {
     ToolCall {
         tool:       ToolCall,
         confidence: f64,      // 0.0 - 1.0, estimated from response metadata
+        usage:      Option<crate::budget::TokenUsage>,
     },
     /// LLM wants to invoke multiple tools in parallel
     ParallelToolCalls {
         tools:      Vec<ToolCall>,
         confidence: f64,
+        usage:      Option<crate::budget::TokenUsage>,
     },
     /// LLM produced a final answer — task is complete
     FinalAnswer {
         content: String,
+        usage:   Option<crate::budget::TokenUsage>,
     },
 }
 

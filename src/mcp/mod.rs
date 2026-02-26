@@ -12,7 +12,7 @@ use serde_json::Value;
 
 /// Bridges an MCP tool into an Agent-B ToolFn.
 pub fn bridge_mcp_tool(client: Arc<McpClient>, tool_name: String) -> ToolFn {
-    Box::new(move |args: &HashMap<String, Value>| {
+    Arc::new(move |args: &HashMap<String, Value>| {
         let client = Arc::clone(&client);
         let name = tool_name.clone();
         let args_clone = args.clone();

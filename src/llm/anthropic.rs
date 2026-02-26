@@ -181,6 +181,8 @@ impl AsyncLlmCaller for AnthropicCaller {
             .await
             .map_err(|e| format!("Failed to parse Anthropic response: {}", e))?;
 
+        let usage = Some(crate::budget::TokenUsage::new(parsed.usage.input_tokens, parsed.usage.output_tokens));
+
         // Tool use takes priority
         for block in parsed.content {
             match block {
@@ -190,10 +192,11 @@ impl AsyncLlmCaller for AnthropicCaller {
                     return Ok(LlmResponse::ToolCall {
                         tool: ToolCall { name, args, id: Some(id) },
                         confidence: 1.0,
+                        usage,
                     });
                 }
                 AnthropicContentBlock::Text { text } => {
-                    return Ok(LlmResponse::FinalAnswer { content: text });
+                    return Ok(LlmResponse::FinalAnswer { content: text, usage });
                 }
             }
         }
@@ -247,6 +250,8 @@ impl AsyncLlmCaller for AnthropicCaller {
                     let mut accumulated_tool_name = String::new();
                     let mut accumulated_tool_args = String::new();
                     
+                    let mut accumulated_usage: Option<crate::budget::TokenUsage> = None;
+                    
                     resp.bytes_stream()
                         .map(|b| b.map_err(|e| format!("Stream error: {}", e)))
                         .map(move |res| {
@@ -280,7 +285,8 @@ impl AsyncLlmCaller for AnthropicCaller {
                                                     }
                                                 }
                                             }
-                                            AnthropicStreamEvent::MessageDelta { delta, .. } => {
+                                            AnthropicStreamEvent::MessageDelta { delta, usage, .. } => {
+                                                accumulated_usage = Some(crate::budget::TokenUsage::new(usage.input_tokens, usage.output_tokens));
                                                 if delta.stop_reason.is_some() {
                                                     if !accumulated_tool_args.is_empty() {
                                                         let args: std::collections::HashMap<String, serde_json::Value> = 
@@ -289,10 +295,12 @@ impl AsyncLlmCaller for AnthropicCaller {
                                                         chunks.push(Ok(crate::types::LlmStreamChunk::Done(LlmResponse::ToolCall {
                                                             tool: ToolCall { name: accumulated_tool_name.clone(), args, id: Some(accumulated_tool_id.clone()) },
                                                             confidence: 1.0,
+                                                            usage: accumulated_usage,
                                                         })));
                                                     } else if !accumulated_content.is_empty() {
                                                         chunks.push(Ok(crate::types::LlmStreamChunk::Done(LlmResponse::FinalAnswer {
                                                             content: accumulated_content.clone(),
+                                                            usage: accumulated_usage,
                                                         })));
                                                     }
                                                 }

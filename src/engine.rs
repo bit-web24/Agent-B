@@ -8,28 +8,34 @@ use crate::transitions::TransitionTable;
 use crate::trace::Trace;
 use crate::types::{State, AgentOutput};
 use crate::error::AgentError;
+use crate::checkpoint::{CheckpointStore, AgentCheckpoint};
 use futures::stream::BoxStream;
 use tokio::sync::mpsc;
+use std::sync::Arc;
 
 pub struct AgentEngine {
     pub memory:          AgentMemory,
-    pub tools:           std::sync::Arc<ToolRegistry>,
-    pub llm:             Box<dyn AsyncLlmCaller>,
-    state:               State,
+    pub tools:           Arc<ToolRegistry>,
+    pub llm:             Arc<dyn AsyncLlmCaller>,
+    pub state:           State,
     transitions:         TransitionTable,
-    handlers:            HashMap<String, Box<dyn AgentState>>,
+    handlers:            HashMap<String, Arc<dyn AgentState>>,
     terminal_states:     HashSet<String>,
+    pub session_id:      String,
+    pub checkpoint_store: Option<Arc<dyn CheckpointStore>>,
 }
 
 impl AgentEngine {
     /// Creates a new engine. Prefer using AgentBuilder for ergonomic construction.
     pub fn new(
         memory:          AgentMemory,
-        tools:           std::sync::Arc<ToolRegistry>,
-        llm:             Box<dyn AsyncLlmCaller>,
+        tools:           Arc<ToolRegistry>,
+        llm:             Arc<dyn AsyncLlmCaller>,
         transitions:     TransitionTable,
-        handlers:        HashMap<String, Box<dyn AgentState>>,
+        handlers:        HashMap<String, Arc<dyn AgentState>>,
         terminal_states: HashSet<String>,
+        session_id:      String,
+        checkpoint_store: Option<Arc<dyn CheckpointStore>>,
     ) -> Self {
         Self {
             memory,
@@ -39,6 +45,8 @@ impl AgentEngine {
             transitions,
             handlers,
             terminal_states,
+            session_id,
+            checkpoint_store,
         }
     }
 
@@ -100,6 +108,19 @@ impl AgentEngine {
         println!("  ══ {} --{}-->{} ══", self.state, event, next_state);
 
         self.state = next_state;
+
+        // Save checkpoint
+        if let Some(store) = &self.checkpoint_store {
+            let checkpoint: AgentCheckpoint = AgentCheckpoint {
+                checkpoint_id: uuid::Uuid::new_v4().to_string(),
+                session_id:    self.session_id.clone(),
+                state:         self.state.clone(),
+                memory:        self.memory.clone(),
+                timestamp:     chrono::Utc::now(),
+            };
+            let _ = store.save(checkpoint).await;
+        }
+
         Ok(())
     }
 

@@ -4,15 +4,17 @@ use crate::types::{LlmResponse, LlmStreamChunk};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 
+use std::sync::Arc;
+
 /// A wrapper around any `AsyncLlmCaller` that retries transient failures
 /// with exponential back-off.
 pub struct RetryingLlmCaller {
-    inner:       Box<dyn super::AsyncLlmCaller>,
+    inner:       Arc<dyn super::AsyncLlmCaller>,
     max_retries: u32,
 }
 
 impl RetryingLlmCaller {
-    pub fn new(inner: Box<dyn super::AsyncLlmCaller>, max_retries: u32) -> Self {
+    pub fn new(inner: Arc<dyn super::AsyncLlmCaller>, max_retries: u32) -> Self {
         Self { inner, max_retries }
     }
 

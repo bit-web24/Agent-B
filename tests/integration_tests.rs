@@ -4,7 +4,7 @@
 //! Run with: `cargo test`
 
 use agentsm::{
-    AgentBuilder, AgentConfig, AgentEngine, AgentError,
+    AgentBuilder, AgentEngine, AgentError,
     Event, LlmResponse, State, ToolCall,
     ToolRegistry, AgentOutput, LlmStreamChunk,
 };
@@ -38,14 +38,17 @@ fn make_tool_call_response(name: &str) -> LlmResponse {
         tool: ToolCall {
             name: name.to_string(),
             args: HashMap::new(),
+            id:   None,
         },
         confidence: 1.0,
+        usage:      None,
     }
 }
 
 fn make_final_answer(content: &str) -> LlmResponse {
     LlmResponse::FinalAnswer {
         content: content.to_string(),
+        usage:   None,
     }
 }
 
@@ -56,12 +59,12 @@ fn make_mock_llm(responses: Vec<LlmResponse>) -> MockLlmCaller {
 /// Build a full engine from a MockLlmCaller. Registers a "dummy" tool.
 fn make_engine_with_mock(mock: MockLlmCaller) -> AgentEngine {
     AgentBuilder::new("test task")
-        .llm(Box::new(mock))
+        .llm(Arc::new(mock))
         .tool(
             "dummy",
             "A dummy tool for testing",
             json!({ "type": "object", "properties": {} }),
-            Box::new(|_args| Ok("dummy result".to_string())),
+            Arc::new(|_args| Ok("dummy result".to_string())),
         )
         .build()
         .expect("builder should succeed")
@@ -70,7 +73,7 @@ fn make_engine_with_mock(mock: MockLlmCaller) -> AgentEngine {
 /// Build a minimal engine with no tools.
 fn make_bare_engine(mock: MockLlmCaller) -> AgentEngine {
     AgentBuilder::new("bare test task")
-        .llm(Box::new(mock))
+        .llm(Arc::new(mock))
         .build()
         .expect("bare builder should succeed")
 }
@@ -124,7 +127,7 @@ async fn test_planning_max_steps_guard() {
 #[tokio::test]
 async fn test_planning_tool_blacklist() {
     let mut engine = AgentBuilder::new("test blacklist")
-        .llm(Box::new(make_mock_llm(vec![
+        .llm(Arc::new(make_mock_llm(vec![
             // First response requests the blacklisted tool
             make_tool_call_response("forbidden_tool"),
             // Second response → final answer (after blacklist rejection loops back to Planning)
@@ -134,7 +137,7 @@ async fn test_planning_tool_blacklist() {
             "forbidden_tool",
             "A tool that is registered but blacklisted",
             json!({ "type": "object", "properties": {} }),
-            Box::new(|_| Ok("should never run".to_string())),
+            Arc::new(|_| Ok("should never run".to_string())),
         )
         .blacklist_tool("forbidden_tool")
         .build()
@@ -161,6 +164,7 @@ async fn test_acting_unknown_tool_is_failure_not_crash() {
     memory.current_tool_call = Some(ToolCall {
         name: "nonexistent_tool".to_string(),
         args: HashMap::new(),
+        id:   None,
     });
 
     let tools = test_tools(); // empty — tool not registered
@@ -191,6 +195,7 @@ async fn test_observing_triggers_reflection_at_step_5() {
     memory.current_tool_call = Some(ToolCall {
         name: "dummy".to_string(),
         args: HashMap::new(),
+        id:   None,
     });
     memory.last_observation = Some("SUCCESS: some result".to_string());
 
@@ -219,6 +224,7 @@ async fn test_observing_commits_to_history() {
         args: HashMap::from([
             ("query".to_string(), json!("Rust language")),
         ]),
+        id:   None,
     });
     memory.last_observation = Some("SUCCESS: Rust is a systems programming language.".to_string());
 
@@ -522,7 +528,7 @@ async fn test_add_tool_with_builder() {
     ]);
 
     let mut engine = AgentBuilder::new("What is 2+2?")
-        .llm(Box::new(mock))
+        .llm(Arc::new(mock))
         .add_tool(
             Tool::new("calculator", "Evaluate math expressions")
                 .param("expression", "string", "The expression to evaluate")
@@ -587,13 +593,14 @@ async fn test_retry_recovers_after_transient_error() {
             } else {
                 Ok(LlmResponse::FinalAnswer {
                     content: "Successfully recovered after transient failures with a complete answer.".to_string(),
+                    usage: None,
                 })
             }
         }
     }
 
     let counter = Arc::new(AtomicUsize::new(0));
-    let inner: Box<dyn agentsm::llm::AsyncLlmCaller> = Box::new(FailNTimesCaller {
+    let inner: Arc<dyn agentsm::llm::AsyncLlmCaller> = Arc::new(FailNTimesCaller {
         fail_count: counter.clone(),
         failures_left: 2,
     });
@@ -650,10 +657,10 @@ async fn test_retry_auth_error_fails_fast() {
     }
 
     let counter = Arc::new(AtomicUsize::new(0));
-    let inner: Box<dyn agentsm::llm::AsyncLlmCaller> = Box::new(AuthErrorCaller {
+    let inner: Arc<dyn agentsm::llm::AsyncLlmCaller> = Arc::new(AuthErrorCaller {
         call_count: counter.clone(),
     });
-    let retrying = RetryingLlmCaller::new(inner, 5);
+    let retrying = RetryingLlmCaller::new(inner, 3);
 
     let memory = test_memory();
     let tools  = test_tools();
@@ -728,10 +735,12 @@ async fn test_custom_state_graph() {
                 // let's emit a tool call to a special "research" tool.
                 Ok(LlmResponse::FinalAnswer {
                     content: "After thorough research, the answer to the question is 42.".to_string(),
+                    usage: None,
                 })
             } else {
                 Ok(LlmResponse::FinalAnswer {
                     content: "Completed with research findings — the answer is definitely 42.".to_string(),
+                    usage: None,
                 })
             }
         }
@@ -779,11 +788,11 @@ async fn test_custom_state_graph() {
     };
 
     let mut engine = AgentBuilder::new("What is 42?")
-        .llm(Box::new(mock_llm))
+        .llm(Arc::new(mock_llm))
         // Register custom state
-        .state("Researching", Box::new(ResearchingState))
+        .state("Researching", Arc::new(ResearchingState))
         // Override default Planning with our custom one
-        .state("Planning", Box::new(CustomPlanningState {
+        .state("Planning", Arc::new(CustomPlanningState {
             call_count: std::sync::atomic::AtomicUsize::new(0),
         }))
         // Add custom transitions
@@ -866,9 +875,9 @@ async fn test_custom_terminal_state() {
     let mock = make_mock_llm(vec![]);
 
     let mut engine = AgentBuilder::new("test custom terminal")
-        .llm(Box::new(mock))
-        .state("Planning", Box::new(ImmediateCustomDonePlanning))
-        .state("CustomDone", Box::new(CustomDoneState))
+        .llm(Arc::new(mock))
+        .state("Planning", Arc::new(ImmediateCustomDonePlanning))
+        .state("CustomDone", Arc::new(CustomDoneState))
         .transition("Planning", "GoCustomDone", "CustomDone")
         .terminal_state("CustomDone")
         .build()

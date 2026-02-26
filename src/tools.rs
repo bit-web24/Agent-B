@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use serde_json::Value;
 
+use std::sync::Arc;
+
 /// A tool function: takes JSON args, returns string result or error string.
-/// Box<dyn Fn> — heap-allocated, Send + Sync for thread safety.
-pub type ToolFn = Box<dyn Fn(&HashMap<String, Value>) -> Result<String, String> + Send + Sync>;
+/// Arc<dyn Fn> — shareable, Send + Sync for thread safety.
+pub type ToolFn = Arc<dyn Fn(&HashMap<String, Value>) -> Result<String, String> + Send + Sync>;
 
 /// Tool schema for sending to LLM (OpenAI / Anthropic tool format)
 #[derive(Debug, Clone, serde::Serialize)]
@@ -14,11 +16,13 @@ pub struct ToolSchema {
 }
 
 /// Registered tool entry
+#[derive(Clone)]
 struct ToolEntry {
     schema: ToolSchema,
     func:   ToolFn,
 }
 
+#[derive(Clone, Default)]
 pub struct ToolRegistry {
     tools: HashMap<String, ToolEntry>,
 }
@@ -89,15 +93,14 @@ impl ToolRegistry {
     }
 }
 
-impl Default for ToolRegistry {
-    fn default() -> Self { Self::new() }
-}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tool Builder
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Parameter definition used by [`Tool`].
+#[derive(Clone)]
 struct ToolParam {
     name:        String,
     param_type:  String,
@@ -183,7 +186,7 @@ impl Tool {
     where
         F: Fn(&HashMap<String, Value>) -> Result<String, String> + Send + Sync + 'static,
     {
-        self.func = Some(Box::new(f));
+        self.func = Some(Arc::new(f));
         self
     }
 

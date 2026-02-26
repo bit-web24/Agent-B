@@ -27,7 +27,7 @@ pub enum HumanDecision {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ApprovalPolicy {
     AlwaysAsk,
     NeverAsk,

@@ -10,7 +10,7 @@ pub struct TraceEntry {
     pub timestamp: DateTime<Utc>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Trace {
     entries: Vec<TraceEntry>,
 }

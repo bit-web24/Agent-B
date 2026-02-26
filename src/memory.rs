@@ -1,9 +1,11 @@
 use crate::types::{ToolCall, HistoryEntry, AgentConfig, ToolResult};
 use crate::trace::{TraceEntry, Trace};
 use crate::human::{HumanApprovalRequest, ApprovalPolicy, HumanDecision};
+use crate::budget::{TokenUsage, TokenBudget};
 use chrono::Utc;
 use std::collections::HashSet;
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 
 pub struct ApprovalCallback(pub Arc<dyn Fn(HumanApprovalRequest) -> HumanDecision + Send + Sync>);
 
@@ -19,7 +21,7 @@ impl Clone for ApprovalCallback {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMemory {
     // ── Task definition ──────────────────────────────────
     /// The original task description
@@ -67,11 +69,19 @@ pub struct AgentMemory {
     /// Policy defining which tools require approval
     pub approval_policy:    ApprovalPolicy,
     /// Callback invoked when approval is needed
+    #[serde(skip)]
     pub approval_callback:  Option<ApprovalCallback>,
 
     // ── Observability ────────────────────────────────────
     /// Full event-sourcing log — every state transition recorded here
     pub trace:              Trace,
+
+    // ── Token Budget ──────────────────────────────────────
+    /// Total tokens consumed in this session
+    pub total_usage:        TokenUsage,
+
+    /// Optional budget limits
+    pub budget:             Option<TokenBudget>,
 }
 
 impl AgentMemory {
@@ -96,6 +106,8 @@ impl AgentMemory {
             approval_policy:    ApprovalPolicy::default(),
             approval_callback:  None,
             trace:             Trace::new(),
+            total_usage:       TokenUsage::default(),
+            budget:            None,
         }
     }
 
