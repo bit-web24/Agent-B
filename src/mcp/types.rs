@@ -7,8 +7,9 @@ use std::collections::HashMap;
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
     pub method:  String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub params:  Option<Value>,
-    pub id:      Value, // Can be String, Number, or Null
+    pub id:      Value,
 }
 
 /// JSON-RPC 2.0 Response
@@ -32,6 +33,7 @@ pub struct JsonRpcError {
 pub struct JsonRpcNotification {
     pub jsonrpc: String,
     pub method:  String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub params:  Option<Value>,
 }
 

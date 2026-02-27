@@ -3,7 +3,7 @@ use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 use tokio::sync::{oneshot, Mutex};
 use tokio::io::{BufReader, BufWriter};
 use anyhow::{Result, Context};
-use crate::mcp::transport::{StdioTransport, McpMessage, send_request, read_message};
+use crate::mcp::transport::{StdioTransport, McpMessage, send_request, send_notification, read_message};
 use crate::mcp::types::*;
 use serde_json::json;
 
@@ -104,23 +104,22 @@ impl McpClient {
         }
 
         // Send initialized notification
-        let notif = JsonRpcRequest {
+        let notif = JsonRpcNotification {
             jsonrpc: "2.0".to_string(),
             method:  "notifications/initialized".to_string(),
-            params:  None,
-            id:      serde_json::Value::Null,
+            params:  Some(json!({})),
         };
         
         {
             let mut writer = self.writer.lock().await;
-            send_request(&mut writer, &notif).await?;
+            send_notification(&mut writer, &notif).await?;
         }
 
         Ok(())
     }
 
     pub async fn list_tools(&self) -> Result<Vec<McpTool>> {
-        let resp = self.send_request_internal("tools/list", None).await?;
+        let resp = self.send_request_internal("tools/list", Some(json!({}))).await?;
         if let Some(err) = resp.error {
             return Err(anyhow::anyhow!("Failed to list tools: {}", err.message));
         }

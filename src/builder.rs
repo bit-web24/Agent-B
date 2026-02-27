@@ -54,6 +54,10 @@ impl AgentBuilder {
         }
     }
 
+    pub fn task(mut self, task: impl Into<String>) -> Self {
+        self.memory.task = task.into(); self
+    }
+
     pub fn task_type(mut self, t: impl Into<String>) -> Self {
         self.memory.task_type = t.into(); self
     }

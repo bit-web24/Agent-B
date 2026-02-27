@@ -40,23 +40,39 @@ pub async fn send_request(writer: &mut BufWriter<tokio::process::ChildStdin>, re
     Ok(())
 }
 
-pub async fn read_message(reader: &mut BufReader<tokio::process::ChildStdout>) -> Result<McpMessage> {
-    let mut line = String::new();
-    reader.read_line(&mut line).await?;
-    if line.is_empty() {
-         return Err(anyhow::anyhow!("Connection closed"));
-    }
+pub async fn send_notification(writer: &mut BufWriter<tokio::process::ChildStdin>, notif: &JsonRpcNotification) -> Result<()> {
+    let json = serde_json::to_string(notif)?;
+    writer.write_all(json.as_bytes()).await?;
+    writer.write_all(b"\n").await?;
+    writer.flush().await?;
+    Ok(())
+}
 
-    let val: Value = serde_json::from_str(&line)?;
-    
-    if val.get("id").is_some() {
-        if val.get("method").is_some() {
-            Ok(McpMessage::Request(serde_json::from_value(val)?))
-        } else {
-            Ok(McpMessage::Response(serde_json::from_value(val)?))
+pub async fn read_message(reader: &mut BufReader<tokio::process::ChildStdout>) -> Result<McpMessage> {
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).await?;
+        if line.is_empty() {
+             return Err(anyhow::anyhow!("Connection closed"));
         }
-    } else {
-        Ok(McpMessage::Notification(serde_json::from_value(val)?))
+
+        let val: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => {
+                tracing::debug!("Skipping non-JSON line from MCP server: {}", line.trim());
+                continue;
+            }
+        };
+        
+        if val.get("id").is_some() && !val["id"].is_null() {
+            if val.get("method").is_some() {
+                return Ok(McpMessage::Request(serde_json::from_value(val)?));
+            } else {
+                return Ok(McpMessage::Response(serde_json::from_value(val)?));
+            }
+        } else {
+            return Ok(McpMessage::Notification(serde_json::from_value(val)?));
+        }
     }
 }
 
