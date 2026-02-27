@@ -44,6 +44,7 @@ pub trait AsyncLlmCaller: Send + Sync {
         memory: &AgentMemory,
         tools:  &ToolRegistry,
         model:  &str,
+        output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> Result<LlmResponse, String>;
 
     /// Asynchronously streams chunks from the LLM.
@@ -52,6 +53,7 @@ pub trait AsyncLlmCaller: Send + Sync {
         memory: &'a AgentMemory,
         tools:  &'a ToolRegistry,
         model:  &'a str,
+        output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> BoxStream<'a, Result<LlmStreamChunk, String>>;
 }
 
@@ -66,7 +68,7 @@ impl<T: AsyncLlmCaller> LlmCaller for SyncWrapper<T> {
         // from within a runtime" panic when called from #[tokio::main].
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
-                .block_on(self.0.call_async(memory, tools, model))
+                .block_on(self.0.call_async(memory, tools, model, None))
         })
     }
 }

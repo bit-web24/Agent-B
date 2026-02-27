@@ -311,8 +311,31 @@ impl AgentBuilder {
                         .map_err(|e| format!("Failed to build sub-agent: {}", e))?;
                     
                     let handle = tokio::runtime::Handle::current();
-                    handle.block_on(engine.run())
-                        .map_err(|e| format!("Sub-agent failed: {}", e))
+                    handle.block_on(async {
+                        use futures::StreamExt;
+                        use std::io::{Write, stdout};
+                        
+                        let mut stream = engine.run_streaming();
+                        let mut final_answer = None;
+
+                        while let Some(output) = stream.next().await {
+                            match output {
+                                crate::types::AgentOutput::LlmToken(token) => {
+                                    print!("{}", token);
+                                    let _ = stdout().flush();
+                                }
+                                crate::types::AgentOutput::FinalAnswer(answer) => {
+                                    final_answer = Some(answer);
+                                }
+                                crate::types::AgentOutput::Error(e) => {
+                                    return Err(format!("Sub-agent engine error: {}", e));
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        final_answer.ok_or_else(|| "Sub-agent finished without a final answer".to_string())
+                    })
                 })
             })
     }

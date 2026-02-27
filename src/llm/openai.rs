@@ -72,6 +72,7 @@ impl AsyncLlmCaller for OpenAiCaller {
         memory: &AgentMemory,
         tools:  &ToolRegistry,
         model:  &str,
+        _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> Result<LlmResponse, String> {
         let messages_json = memory.build_messages();
 
@@ -140,6 +141,7 @@ impl AsyncLlmCaller for OpenAiCaller {
         memory: &'a AgentMemory,
         tools:  &'a ToolRegistry,
         model:  &'a str,
+        _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
         use futures::{StreamExt, stream};
         let messages_json = memory.build_messages();

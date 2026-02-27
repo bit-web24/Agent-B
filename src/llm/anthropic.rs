@@ -145,6 +145,7 @@ impl AsyncLlmCaller for AnthropicCaller {
         memory: &AgentMemory,
         tools:  &ToolRegistry,
         model:  &str,
+        _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> Result<LlmResponse, String> {
         let system = if memory.system_prompt.is_empty() {
             None
@@ -209,6 +210,7 @@ impl AsyncLlmCaller for AnthropicCaller {
         memory: &'a AgentMemory,
         tools:  &'a ToolRegistry,
         model:  &'a str,
+        _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> futures::stream::BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
         use futures::{StreamExt, stream};
         

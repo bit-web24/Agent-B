@@ -151,7 +151,7 @@ impl AgentState for PlanningState {
 
         // 4. Call LLM (streaming)
         let (final_resp, stream_err) = {
-            let mut stream = llm.call_stream_async(memory, tools, &model);
+            let mut stream = llm.call_stream_async(memory, tools, &model, output_tx);
             let mut final_resp = None;
             let mut stream_err = None;
 
@@ -180,19 +180,43 @@ impl AgentState for PlanningState {
             (final_resp, stream_err)
         };
 
-        if let Some(err) = stream_err {
-            memory.error = Some(format!("LLM error: {}", err));
-            memory.log("Planning", "LLM_ERROR", &err);
-            return Event::fatal_error();
-        }
-
-        let resp = match final_resp {
-            Some(r) => r,
-            None => {
-                let err = "LLM stream ended without Done chunk".to_string();
-                memory.error = Some(err.clone());
-                memory.log("Planning", "STREAM_ERROR", &err);
-                return Event::fatal_error();
+        let resp = if let Some(err) = stream_err {
+            memory.log("Planning", "LLM_STREAM_ERROR", &err);
+            match llm.call_async(memory, tools, &model, output_tx).await {
+                Ok(resp) => {
+                    memory.log("Planning", "LLM_FALLBACK_SYNC", "Recovered via non-stream call");
+                    resp
+                }
+                Err(sync_err) => {
+                    memory.error = Some(format!(
+                        "LLM stream error: {} | fallback call_async error: {}",
+                        err, sync_err
+                    ));
+                    memory.log("Planning", "LLM_ERROR", &sync_err);
+                    return Event::fatal_error();
+                }
+            }
+        } else {
+            match final_resp {
+                Some(r) => r,
+                None => {
+                    let stream_end_err = "LLM stream ended without Done chunk".to_string();
+                    memory.log("Planning", "STREAM_ERROR", &stream_end_err);
+                    match llm.call_async(memory, tools, &model, output_tx).await {
+                        Ok(resp) => {
+                            memory.log("Planning", "LLM_FALLBACK_SYNC", "Recovered from incomplete stream");
+                            resp
+                        }
+                        Err(sync_err) => {
+                            memory.error = Some(format!(
+                                "{} | fallback call_async error: {}",
+                                stream_end_err, sync_err
+                            ));
+                            memory.log("Planning", "LLM_ERROR", &sync_err);
+                            return Event::fatal_error();
+                        }
+                    }
+                }
             }
         };
         let (LlmResponse::ToolCall { usage, .. } |

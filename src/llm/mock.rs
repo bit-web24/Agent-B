@@ -38,6 +38,7 @@ impl crate::llm::AsyncLlmCaller for MockLlmCaller {
         memory: &AgentMemory,
         _tools:  &ToolRegistry,
         model:  &str,
+        _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> Result<LlmResponse, String> {
         self.call_log.lock().unwrap()
             .push((model.to_string(), memory.task.clone()));
@@ -55,6 +56,7 @@ impl crate::llm::AsyncLlmCaller for MockLlmCaller {
         memory: &'a AgentMemory,
         _tools:  &'a ToolRegistry,
         model:  &'a str,
+        _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> futures::stream::BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
         use futures::stream::{self, StreamExt};
         let (task, model_s) = (memory.task.clone(), model.to_string());

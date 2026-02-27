@@ -27,6 +27,11 @@ impl RetryingLlmCaller {
             || lower.contains("forbidden")
             || lower.contains("invalid api key")
     }
+
+    fn is_rate_limit_error(err: &str) -> bool {
+        let lower = err.to_lowercase();
+        lower.contains("429") || lower.contains("rate limit") || lower.contains("too many requests")
+    }
 }
 
 #[async_trait]
@@ -36,11 +41,13 @@ impl super::AsyncLlmCaller for RetryingLlmCaller {
         memory: &AgentMemory,
         tools:  &ToolRegistry,
         model:  &str,
+        output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> Result<LlmResponse, String> {
         let mut last_err = String::new();
+        let mut rate_limited = false;
 
         for attempt in 0..=self.max_retries {
-            match self.inner.call_async(memory, tools, model).await {
+            match self.inner.call_async(memory, tools, model, output_tx).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) if Self::is_auth_error(&e) => {
                     tracing::error!(error = %e, "LLM auth error — not retrying");
@@ -48,8 +55,24 @@ impl super::AsyncLlmCaller for RetryingLlmCaller {
                 }
                 Err(e) => {
                     last_err = e.clone();
+                    if Self::is_rate_limit_error(&e) {
+                        rate_limited = true;
+                    }
+
                     if attempt < self.max_retries {
-                        let wait_secs = std::cmp::min(1u64 << attempt, 30);
+                        // For rate limits, use a longer initial wait
+                        let base_wait = if Self::is_rate_limit_error(&e) { 5 } else { 1 };
+                        let wait_secs = std::cmp::min(base_wait << attempt, 60);
+                        
+                        if let Some(tx) = output_tx {
+                            let msg = if Self::is_rate_limit_error(&e) {
+                                format!("Rate limit hit (429). Waiting {}s before retry...", wait_secs)
+                            } else {
+                                format!("Transient error. Waiting {}s before retry...", wait_secs)
+                            };
+                            let _ = tx.send(crate::types::AgentOutput::Action(msg));
+                        }
+
                         tracing::warn!(
                             attempt = attempt + 1,
                             max     = self.max_retries,
@@ -63,9 +86,15 @@ impl super::AsyncLlmCaller for RetryingLlmCaller {
             }
         }
 
+        let prefix = if rate_limited {
+            "LLM RATE LIMIT EXCEEDED"
+        } else {
+            "LLM failed"
+        };
+
         Err(format!(
-            "LLM failed after {} retries — last error: {}",
-            self.max_retries, last_err
+            "{} after {} retries — last error: {}",
+            prefix, self.max_retries, last_err
         ))
     }
 
@@ -74,11 +103,12 @@ impl super::AsyncLlmCaller for RetryingLlmCaller {
         memory: &'a AgentMemory,
         tools:  &'a ToolRegistry,
         model:  &'a str,
-    ) -> BoxStream<'a, Result<LlmStreamChunk, String>> {
+        output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
+    ) -> BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
         // Retrying a stream is complex. For now, we just delegate to the inner caller.
         // If the initial connection fails, we could retry, but if it fails mid-stream, 
         // we'd lose state. Industry grade usually handles this at a higher level
         // or has complex chunk accumulation & recovery.
-        self.inner.call_stream_async(memory, tools, model)
+        self.inner.call_stream_async(memory, tools, model, output_tx)
     }
 }
