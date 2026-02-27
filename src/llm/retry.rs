@@ -30,7 +30,14 @@ impl RetryingLlmCaller {
 
     fn is_rate_limit_error(err: &str) -> bool {
         let lower = err.to_lowercase();
-        lower.contains("429") || lower.contains("rate limit") || lower.contains("too many requests")
+        lower.contains("429")
+            || lower.contains("rate limit")
+            || lower.contains("too many requests")
+            || lower.contains("too_many_tokens_error")
+            || lower.contains("token_quota_exceeded")
+            || lower.contains("too_many_requests_error")
+            || lower.contains("queue_exceeded")
+            || lower.contains("limit exceeded")
     }
 }
 
