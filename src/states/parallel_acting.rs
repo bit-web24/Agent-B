@@ -109,10 +109,10 @@ mod tests {
     struct MockLlm;
     #[async_trait]
     impl AsyncLlmCaller for MockLlm {
-        async fn call_async(&self, _: &AgentMemory, _: &ToolRegistry, _: &str) -> Result<crate::types::LlmResponse, String> {
+        async fn call_async(&self, _: &AgentMemory, _: &ToolRegistry, _: &str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>) -> Result<crate::types::LlmResponse, String> {
             Err("Not used".to_string())
         }
-        fn call_stream_async<'a>(&'a self, _: &'a AgentMemory, _: &'a ToolRegistry, _: &'a str) -> futures::stream::BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
+        fn call_stream_async<'a>(&'a self, _: &'a AgentMemory, _: &'a ToolRegistry, _: &'a str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>) -> futures::stream::BoxStream<'a, Result<crate::types::LlmStreamChunk, String>> {
             unimplemented!()
         }
     }

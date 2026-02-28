@@ -13,6 +13,7 @@ use agentsm::AgentBuilder;
 use agentsm::llm::AnthropicCaller;
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -26,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // Use the Anthropic caller directly (it implements AsyncLlmCaller)
-    let llm = Box::new(anthropic);
+    let llm = Arc::new(anthropic);
 
     let mut engine = AgentBuilder::new(
             "What are the key design principles of the Rust programming language, \
@@ -66,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
                 },
                 "required": ["topic"]
             }),
-            Box::new(|args: &HashMap<String, serde_json::Value>| {
+            Arc::new(|args: &HashMap<String, serde_json::Value>| {
                 let topic  = args.get("topic").and_then(|v| v.as_str()).unwrap_or("unknown");
                 let detail = args.get("detail_level").and_then(|v| v.as_str()).unwrap_or("summary");
 

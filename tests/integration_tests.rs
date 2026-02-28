@@ -567,10 +567,10 @@ async fn test_retry_recovers_after_transient_error() {
 
     #[async_trait]
     impl agentsm::llm::AsyncLlmCaller for FailNTimesCaller {
-        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str) -> Result<LlmResponse, String> {
+        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> Result<LlmResponse, String> {
              agentsm::llm::LlmCaller::call(self, memory, tools, model)
         }
-        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
+        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
             use futures::stream::{self, StreamExt};
             let resp = agentsm::llm::LlmCaller::call(self, m, t, mo);
             match resp {
@@ -609,7 +609,7 @@ async fn test_retry_recovers_after_transient_error() {
     let memory = test_memory();
     let tools  = test_tools();
 
-    let result = retrying.call_async(&memory, &tools, "test-model").await;
+    let result = retrying.call_async(&memory, &tools, "test-model", None).await;
     assert!(result.is_ok(), "Should recover after transient errors: {:?}", result);
     assert_eq!(counter.load(Ordering::SeqCst), 3, "Should have been called 3 times total");
 }
@@ -631,10 +631,10 @@ async fn test_retry_auth_error_fails_fast() {
 
     #[async_trait]
     impl agentsm::llm::AsyncLlmCaller for AuthErrorCaller {
-        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str) -> Result<LlmResponse, String> {
+        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> Result<LlmResponse, String> {
              agentsm::llm::LlmCaller::call(self, memory, tools, model)
         }
-        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
+        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
             use futures::stream::{self, StreamExt};
             let resp = agentsm::llm::LlmCaller::call(self, m, t, mo);
             match resp {
@@ -665,7 +665,7 @@ async fn test_retry_auth_error_fails_fast() {
     let memory = test_memory();
     let tools  = test_tools();
 
-    let result = retrying.call_async(&memory, &tools, "test-model").await;
+    let result = retrying.call_async(&memory, &tools, "test-model", None).await;
     assert!(result.is_err(), "Auth errors should not be retried");
     assert_eq!(counter.load(Ordering::SeqCst), 1, "Should only be called once — no retry");
     assert!(result.unwrap_err().contains("401"));
@@ -708,10 +708,10 @@ async fn test_custom_state_graph() {
 
     #[async_trait]
     impl agentsm::llm::AsyncLlmCaller for ResearchTriggerLlm {
-        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str) -> Result<LlmResponse, String> {
+        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> Result<LlmResponse, String> {
              self.call(memory, tools, model)
         }
-        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
+        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
             use futures::stream::{self, StreamExt};
             let resp = self.call(m, t, mo);
             match resp {

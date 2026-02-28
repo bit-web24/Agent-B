@@ -37,7 +37,7 @@ pub enum ApprovalPolicy {
 
 impl Default for ApprovalPolicy {
     fn default() -> Self {
-        Self::AskAbove(RiskLevel::High)
+        Self::NeverAsk
     }
 }
 
@@ -47,13 +47,16 @@ impl ApprovalPolicy {
             Self::AlwaysAsk => true,
             Self::NeverAsk => false,
             Self::AskAbove(threshold) => {
-                // Default risk for unknown tools is Medium
-                RiskLevel::Medium >= *threshold
+                // Default risk for unknown tools is Medium.
+                // Ask for approval if the default risk meets or exceeds the threshold.
+                let default_risk = RiskLevel::Medium;
+                default_risk >= *threshold
             }
             Self::ToolBased(map) => {
+                // Look up the tool's risk level; default to Low for unregistered tools.
+                // Approval is required if the tool's risk is High or above.
                 let risk = map.get(tool_name).copied().unwrap_or(RiskLevel::Low);
-                risk >= RiskLevel::High // Hardcoded default threshold for tool-based if not specified? 
-                // Better to make ToolBased include the threshold.
+                risk >= RiskLevel::High
             }
         }
     }

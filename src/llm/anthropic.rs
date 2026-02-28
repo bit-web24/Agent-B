@@ -184,22 +184,40 @@ impl AsyncLlmCaller for AnthropicCaller {
 
         let usage = Some(crate::budget::TokenUsage::new(parsed.usage.input_tokens, parsed.usage.output_tokens));
 
-        // Tool use takes priority
+        // Collect all tool_use and text blocks
+        let mut tool_calls = Vec::new();
+        let mut text_content = None;
+
         for block in parsed.content {
             match block {
                 AnthropicContentBlock::ToolUse { id, name, input, .. } => {
                     let args = serde_json::from_value(input)
                         .map_err(|e| format!("Invalid tool args: {}", e))?;
-                    return Ok(LlmResponse::ToolCall {
-                        tool: ToolCall { name, args, id: Some(id) },
-                        confidence: 1.0,
-                        usage,
-                    });
+                    tool_calls.push(ToolCall { name, args, id: Some(id) });
                 }
                 AnthropicContentBlock::Text { text } => {
-                    return Ok(LlmResponse::FinalAnswer { content: text, usage });
+                    text_content = Some(text);
                 }
             }
+        }
+
+        // Tool calls take priority over text content
+        if tool_calls.len() > 1 {
+            return Ok(LlmResponse::ParallelToolCalls {
+                tools: tool_calls,
+                confidence: 1.0,
+                usage,
+            });
+        } else if tool_calls.len() == 1 {
+            return Ok(LlmResponse::ToolCall {
+                tool: tool_calls.into_iter().next().unwrap(),
+                confidence: 1.0,
+                usage,
+            });
+        }
+
+        if let Some(text) = text_content {
+            return Ok(LlmResponse::FinalAnswer { content: text, usage });
         }
 
         Err("Anthropic returned empty content".to_string())

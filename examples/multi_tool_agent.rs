@@ -12,6 +12,7 @@ use agentsm::AgentBuilder;
 use agentsm::llm::OpenAiCaller;
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -20,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     println!("=== agentsm-rs Multi-Tool Agent Example ===\n");
     println!("Task: Calculate 137 * 48 and then find today's weather in London.\n");
 
-    let llm = Box::new(OpenAiCaller::new());
+    let llm = Arc::new(OpenAiCaller::new());
 
 
     let mut engine = AgentBuilder::new(
@@ -58,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
                 },
                 "required": ["expression"]
             }),
-            Box::new(|args: &HashMap<String, serde_json::Value>| {
+            Arc::new(|args: &HashMap<String, serde_json::Value>| {
                 let expr = args.get("expression")
                     .and_then(|v| v.as_str())
                     .unwrap_or("0");
@@ -83,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
                 },
                 "required": ["city"]
             }),
-            Box::new(|args: &HashMap<String, serde_json::Value>| {
+            Arc::new(|args: &HashMap<String, serde_json::Value>| {
                 let city = args.get("city")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
@@ -106,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
                 },
                 "required": ["query"]
             }),
-            Box::new(|args: &HashMap<String, serde_json::Value>| {
+            Arc::new(|args: &HashMap<String, serde_json::Value>| {
                 let q = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
                 Ok(format!("Search results for: {}", q))
             }),

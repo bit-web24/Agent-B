@@ -24,6 +24,10 @@ path = "examples/multi_tool_agent.rs"
 name = "anthropic_agent"
 path = "examples/anthropic_agent.rs"
 
+[[example]]
+name = "streaming_agent"
+path = "examples/streaming_agent.rs"
+
 [dependencies]
 # Async runtime
 tokio        = { version = "1",    features = ["full"] }

@@ -12,6 +12,7 @@ use agentsm::AgentBuilder;
 use agentsm::llm::OpenAiCaller;
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     println!("=== agentsm-rs Basic Agent Example ===\n");
 
     // Build an OpenAI LLM caller (reads OPENAI_API_KEY from environment)
-    let llm = Box::new(OpenAiCaller::new());
+    let llm = Arc::new(OpenAiCaller::new());
 
     let mut engine = AgentBuilder::new(
             "What is the capital of France and what is its population?"
@@ -53,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
                 },
                 "required": ["query"]
             }),
-            Box::new(|args: &HashMap<String, serde_json::Value>| {
+            Arc::new(|args: &HashMap<String, serde_json::Value>| {
                 let query = args.get("query")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
