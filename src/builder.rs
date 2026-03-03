@@ -1,35 +1,34 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use crate::budget::TokenBudget;
+use crate::checkpoint::CheckpointStore;
 use crate::engine::AgentEngine;
 use crate::error::AgentError;
+use crate::events::Event;
+use crate::llm::{AnthropicCaller, AsyncLlmCaller, OpenAiCaller, RetryingLlmCaller};
+use crate::mcp::{bridge_mcp_tool, McpClient};
 use crate::memory::AgentMemory;
-use crate::tools::{ToolRegistry, ToolFn, Tool};
-use crate::llm::{AsyncLlmCaller, OpenAiCaller, AnthropicCaller, RetryingLlmCaller};
 use crate::states::{
-    AgentState, IdleState, PlanningState, ActingState, ParallelActingState,
-    ObservingState, ReflectingState, DoneState, ErrorState,
-    WaitingForHumanState,
+    ActingState, AgentState, DoneState, ErrorState, IdleState, ObservingState, ParallelActingState,
+    PlanningState, ReflectingState, WaitingForHumanState,
 };
-use crate::checkpoint::CheckpointStore;
-use crate::budget::TokenBudget;
+use crate::tools::{Tool, ToolFn, ToolRegistry};
 use crate::transitions::build_transition_table;
 use crate::types::{AgentConfig, State};
-use crate::events::Event;
-use crate::mcp::{McpClient, bridge_mcp_tool};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AgentBuilder {
-    memory:             AgentMemory,
-    tools:              ToolRegistry,
-    llm:                Option<Arc<dyn AsyncLlmCaller>>,
-    config:             Option<AgentConfig>,
-    retry_count:        Option<u32>,
-    custom_handlers:    HashMap<String, Arc<dyn AgentState>>,
+    memory: AgentMemory,
+    tools: ToolRegistry,
+    llm: Option<Arc<dyn AsyncLlmCaller>>,
+    config: Option<AgentConfig>,
+    retry_count: Option<u32>,
+    custom_handlers: HashMap<String, Arc<dyn AgentState>>,
     custom_transitions: Vec<(State, Event, State)>,
-    terminal_states:    HashSet<String>,
-    checkpoint_store:   Option<Arc<dyn CheckpointStore>>,
-    session_id:         String,
-    initial_state:      Option<State>,
+    terminal_states: HashSet<String>,
+    checkpoint_store: Option<Arc<dyn CheckpointStore>>,
+    session_id: String,
+    initial_state: Option<State>,
 }
 
 impl AgentBuilder {
@@ -40,37 +39,41 @@ impl AgentBuilder {
         terminal.insert("Error".to_string());
 
         Self {
-            memory:             AgentMemory::new(task),
-            tools:              ToolRegistry::new(),
-            llm:                None,
-            config:             None,
-            retry_count:        None,
-            custom_handlers:    HashMap::new(),
+            memory: AgentMemory::new(task),
+            tools: ToolRegistry::new(),
+            llm: None,
+            config: None,
+            retry_count: None,
+            custom_handlers: HashMap::new(),
             custom_transitions: Vec::new(),
-            terminal_states:    terminal,
-            checkpoint_store:   None,
-            session_id:         uuid::Uuid::new_v4().to_string(),
-            initial_state:      None,
+            terminal_states: terminal,
+            checkpoint_store: None,
+            session_id: uuid::Uuid::new_v4().to_string(),
+            initial_state: None,
         }
     }
 
     pub fn task(mut self, task: impl Into<String>) -> Self {
-        self.memory.task = task.into(); self
+        self.memory.task = task.into();
+        self
     }
 
     pub fn task_type(mut self, t: impl Into<String>) -> Self {
-        self.memory.task_type = t.into(); self
+        self.memory.task_type = t.into();
+        self
     }
 
     pub fn system_prompt(mut self, p: impl Into<String>) -> Self {
-        self.memory.system_prompt = p.into(); self
+        self.memory.system_prompt = p.into();
+        self
     }
 
     // ── LLM provider setters ──────────────────────────────────────────────────
 
     /// Set the LLM caller explicitly.
     pub fn llm(mut self, llm: Arc<dyn AsyncLlmCaller>) -> Self {
-        self.llm = Some(llm); self
+        self.llm = Some(llm);
+        self
     }
 
     /// Use the standard OpenAI API.
@@ -87,10 +90,7 @@ impl AgentBuilder {
 
     /// Use Groq's ultra-fast inference API (OpenAI-compatible).
     pub fn groq(mut self, api_key: impl Into<String>) -> Self {
-        let caller = OpenAiCaller::with_base_url(
-            "https://api.groq.com/openai/v1",
-            api_key.into(),
-        );
+        let caller = OpenAiCaller::with_base_url("https://api.groq.com/openai/v1", api_key.into());
         self.llm = Some(Arc::new(caller));
         self
     }
@@ -99,7 +99,11 @@ impl AgentBuilder {
     pub fn ollama(mut self, base_url: impl Into<String>) -> Self {
         let url = {
             let s = base_url.into();
-            if s.is_empty() { "http://localhost:11434/v1".to_string() } else { s }
+            if s.is_empty() {
+                "http://localhost:11434/v1".to_string()
+            } else {
+                s
+            }
         };
         let caller = OpenAiCaller::with_base_url(url, "ollama");
         self.llm = Some(Arc::new(caller));
@@ -120,7 +124,7 @@ impl AgentBuilder {
 
     /// Use the Anthropic API (Claude models).
     pub fn anthropic(mut self, api_key: impl Into<String>) -> Self {
-        let key   = api_key.into();
+        let key = api_key.into();
         let result = if key.is_empty() {
             AnthropicCaller::from_env()
         } else {
@@ -142,7 +146,8 @@ impl AgentBuilder {
     // ── Configuration ────────────────────────────────────────────────────────
 
     pub fn config(mut self, config: AgentConfig) -> Self {
-        self.config = Some(config); self
+        self.config = Some(config);
+        self
     }
 
     /// Set the checkpoint store for persistence.
@@ -159,13 +164,20 @@ impl AgentBuilder {
 
     /// Resume an agent from the latest checkpoint of a session.
     pub async fn resume(mut self, session_id: &str) -> Result<Self, AgentError> {
-        let store = self.checkpoint_store.as_ref()
-            .ok_or_else(|| AgentError::BuildError("Checkpoint store must be set before calling .resume()".to_string()))?;
-        
-        let checkpoint = store.load_latest(session_id).await
+        let store = self.checkpoint_store.as_ref().ok_or_else(|| {
+            AgentError::BuildError(
+                "Checkpoint store must be set before calling .resume()".to_string(),
+            )
+        })?;
+
+        let checkpoint = store
+            .load_latest(session_id)
+            .await
             .map_err(|e| AgentError::BuildError(format!("Failed to load checkpoint: {}", e)))?
-            .ok_or_else(|| AgentError::BuildError(format!("No checkpoint found for session: {}", session_id)))?;
-        
+            .ok_or_else(|| {
+                AgentError::BuildError(format!("No checkpoint found for session: {}", session_id))
+            })?;
+
         self.memory = checkpoint.memory;
         self.session_id = checkpoint.session_id;
         self.initial_state = Some(checkpoint.state);
@@ -174,12 +186,13 @@ impl AgentBuilder {
     }
 
     pub fn max_steps(mut self, n: usize) -> Self {
-        self.memory.config.max_steps = n; self
+        self.memory.config.max_steps = n;
+        self
     }
 
     /// Enable or disable parallel tool execution.
     pub fn parallel_tools(mut self, enabled: bool) -> Self {
-        self.memory.config.parallel_tools = enabled; 
+        self.memory.config.parallel_tools = enabled;
         self
     }
 
@@ -190,21 +203,34 @@ impl AgentBuilder {
     }
 
     /// Callback for human approval.
-    pub fn on_approval<F>(mut self, callback: F) -> Self 
-    where F: Fn(crate::human::HumanApprovalRequest) -> crate::human::HumanDecision + Send + Sync + 'static {
-        self.memory.approval_callback = Some(crate::memory::ApprovalCallback(std::sync::Arc::new(callback)));
+    pub fn on_approval<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(crate::human::HumanApprovalRequest) -> crate::human::HumanDecision
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.memory.approval_callback = Some(crate::memory::ApprovalCallback(std::sync::Arc::new(
+            callback,
+        )));
         self
     }
 
     /// Set the model used for all planning steps (sets `"default"` key).
     pub fn model(mut self, model: impl Into<String>) -> Self {
-        self.memory.config.models.insert("default".to_string(), model.into());
+        self.memory
+            .config
+            .models
+            .insert("default".to_string(), model.into());
         self
     }
 
     /// Set the model for a specific task type.
     pub fn model_for(mut self, task_type: impl Into<String>, model: impl Into<String>) -> Self {
-        self.memory.config.models.insert(task_type.into(), model.into());
+        self.memory
+            .config
+            .models
+            .insert(task_type.into(), model.into());
         self
     }
 
@@ -214,15 +240,60 @@ impl AgentBuilder {
         self
     }
 
+    /// Request structured JSON output conforming to the given schema.
+    ///
+    /// The LLM will be instructed to return JSON matching the schema.
+    /// OpenAI uses `response_format: json_object` mode; Anthropic uses
+    /// a synthetic tool to extract structured data.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use agentsm::AgentBuilder;
+    /// # use serde_json::json;
+    /// let builder = AgentBuilder::new("Extract person info")
+    ///     .openai("")
+    ///     .output_schema("person", json!({
+    ///         "type": "object",
+    ///         "properties": {
+    ///             "name": { "type": "string" },
+    ///             "age":  { "type": "integer" }
+    ///         },
+    ///         "required": ["name", "age"]
+    ///     }));
+    /// ```
+    pub fn output_schema(mut self, name: impl Into<String>, schema: serde_json::Value) -> Self {
+        self.memory.config.output_schema = Some(crate::types::OutputSchema {
+            name: name.into(),
+            description: None,
+            schema,
+        });
+        self
+    }
+
+    /// Request structured JSON output with a description.
+    pub fn output_schema_with_desc(
+        mut self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+        schema: serde_json::Value,
+    ) -> Self {
+        self.memory.config.output_schema = Some(crate::types::OutputSchema {
+            name: name.into(),
+            description: Some(description.into()),
+            schema,
+        });
+        self
+    }
+
     // ── Tool registration ────────────────────────────────────────────────────
 
     /// Register a raw tool.
     pub fn tool(
         mut self,
-        name:        impl Into<String>,
+        name: impl Into<String>,
         description: impl Into<String>,
-        schema:      serde_json::Value,
-        func:        ToolFn,
+        schema: serde_json::Value,
+        func: ToolFn,
     ) -> Self {
         self.tools.register(name, description, schema, func);
         self
@@ -241,10 +312,12 @@ impl AgentBuilder {
 
         tokio::task::block_in_place(|| {
             let handle = tokio::runtime::Handle::current();
-            let client = handle.block_on(McpClient::new(&cmd, &args))
+            let client = handle
+                .block_on(McpClient::new(&cmd, &args))
                 .expect("Failed to initialize MCP client");
 
-            let tools = handle.block_on(client.list_tools())
+            let tools = handle
+                .block_on(client.list_tools())
                 .expect("Failed to list MCP tools");
 
             for mcp_tool in tools {
@@ -261,7 +334,8 @@ impl AgentBuilder {
     }
 
     pub fn blacklist_tool(mut self, name: impl Into<String>) -> Self {
-        self.memory.blacklist_tool(name); self
+        self.memory.blacklist_tool(name);
+        self
     }
 
     // ── Custom graph building ────────────────────────────────────────────────
@@ -274,8 +348,8 @@ impl AgentBuilder {
     pub fn transition(
         mut self,
         from_state: impl Into<String>,
-        on_event:   impl Into<String>,
-        to_state:   impl Into<String>,
+        on_event: impl Into<String>,
+        to_state: impl Into<String>,
     ) -> Self {
         self.custom_transitions.push((
             State::new(from_state),
@@ -297,24 +371,31 @@ impl AgentBuilder {
     pub fn as_tool(&self, name: impl Into<String>, description: impl Into<String>) -> Tool {
         let builder = self.clone();
         Tool::new(name, description)
-            .param("task", "string", "The task to delegate to this specialized sub-agent")
+            .param(
+                "task",
+                "string",
+                "The task to delegate to this specialized sub-agent",
+            )
             .call(move |args| {
-                let task = args.get("task").and_then(|v| v.as_str())
+                let task = args
+                    .get("task")
+                    .and_then(|v| v.as_str())
                     .ok_or_else(|| "Missing required 'task' parameter for sub-agent".to_string())?;
 
                 let mut sub_agent_builder = builder.clone();
                 sub_agent_builder.memory.task = task.to_string();
-                
+
                 // We use block_in_place because sub-agents run synchronously within the tool call
                 tokio::task::block_in_place(|| {
-                    let mut engine = sub_agent_builder.build()
+                    let mut engine = sub_agent_builder
+                        .build()
                         .map_err(|e| format!("Failed to build sub-agent: {}", e))?;
-                    
+
                     let handle = tokio::runtime::Handle::current();
                     handle.block_on(async {
                         use futures::StreamExt;
-                        use std::io::{Write, stdout};
-                        
+                        use std::io::{stdout, Write};
+
                         let mut stream = engine.run_streaming();
                         let mut final_answer = None;
 
@@ -334,14 +415,20 @@ impl AgentBuilder {
                             }
                         }
 
-                        final_answer.ok_or_else(|| "Sub-agent finished without a final answer".to_string())
+                        final_answer
+                            .ok_or_else(|| "Sub-agent finished without a final answer".to_string())
                     })
                 })
             })
     }
 
     /// Convenience method to register a sub-agent as a tool.
-    pub fn add_subagent(self, name: impl Into<String>, description: impl Into<String>, subagent: AgentBuilder) -> Self {
+    pub fn add_subagent(
+        self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+        subagent: AgentBuilder,
+    ) -> Self {
         let name_s = name.into();
         let tool = subagent.as_tool(name_s.clone(), description);
         self.add_tool(tool)
@@ -350,7 +437,8 @@ impl AgentBuilder {
     // ── Build ────────────────────────────────────────────────────────────────
 
     pub fn build(mut self) -> Result<AgentEngine, AgentError> {
-        let mut llm = self.llm
+        let mut llm = self
+            .llm
             .ok_or_else(|| AgentError::BuildError("LLM caller is required.".to_string()))?;
 
         if let Some(n) = self.retry_count {
@@ -362,15 +450,18 @@ impl AgentBuilder {
         }
 
         let mut handlers: HashMap<String, Arc<dyn AgentState>> = HashMap::new();
-        handlers.insert("Idle".to_string(),       Arc::new(IdleState));
-        handlers.insert("Planning".to_string(),   Arc::new(PlanningState));
-        handlers.insert("Acting".to_string(),     Arc::new(ActingState));
+        handlers.insert("Idle".to_string(), Arc::new(IdleState));
+        handlers.insert("Planning".to_string(), Arc::new(PlanningState));
+        handlers.insert("Acting".to_string(), Arc::new(ActingState));
         handlers.insert("ParallelActing".to_string(), Arc::new(ParallelActingState));
-        handlers.insert("Observing".to_string(),  Arc::new(ObservingState));
+        handlers.insert("Observing".to_string(), Arc::new(ObservingState));
         handlers.insert("Reflecting".to_string(), Arc::new(ReflectingState));
-        handlers.insert("Done".to_string(),       Arc::new(DoneState));
-        handlers.insert("Error".to_string(),      Arc::new(ErrorState));
-        handlers.insert("WaitingForHuman".to_string(), Arc::new(WaitingForHumanState));
+        handlers.insert("Done".to_string(), Arc::new(DoneState));
+        handlers.insert("Error".to_string(), Arc::new(ErrorState));
+        handlers.insert(
+            "WaitingForHuman".to_string(),
+            Arc::new(WaitingForHumanState),
+        );
 
         for (name, handler) in self.custom_handlers {
             handlers.insert(name, handler);
@@ -403,7 +494,8 @@ impl AgentBuilder {
         mut self,
         extra_handlers: HashMap<String, Arc<dyn AgentState>>,
     ) -> Result<AgentEngine, AgentError> {
-        let mut llm = self.llm
+        let mut llm = self
+            .llm
             .ok_or_else(|| AgentError::BuildError("LLM caller is required".to_string()))?;
 
         if let Some(n) = self.retry_count {
@@ -415,15 +507,18 @@ impl AgentBuilder {
         }
 
         let mut handlers: HashMap<String, Arc<dyn AgentState>> = HashMap::new();
-        handlers.insert("Idle".to_string(),       Arc::new(IdleState));
-        handlers.insert("Planning".to_string(),   Arc::new(PlanningState));
-        handlers.insert("Acting".to_string(),     Arc::new(ActingState));
+        handlers.insert("Idle".to_string(), Arc::new(IdleState));
+        handlers.insert("Planning".to_string(), Arc::new(PlanningState));
+        handlers.insert("Acting".to_string(), Arc::new(ActingState));
         handlers.insert("ParallelActing".to_string(), Arc::new(ParallelActingState));
-        handlers.insert("Observing".to_string(),  Arc::new(ObservingState));
+        handlers.insert("Observing".to_string(), Arc::new(ObservingState));
         handlers.insert("Reflecting".to_string(), Arc::new(ReflectingState));
-        handlers.insert("Done".to_string(),       Arc::new(DoneState));
-        handlers.insert("Error".to_string(),      Arc::new(ErrorState));
-        handlers.insert("WaitingForHuman".to_string(), Arc::new(WaitingForHumanState));
+        handlers.insert("Done".to_string(), Arc::new(DoneState));
+        handlers.insert("Error".to_string(), Arc::new(ErrorState));
+        handlers.insert(
+            "WaitingForHuman".to_string(),
+            Arc::new(WaitingForHumanState),
+        );
 
         for (name, handler) in self.custom_handlers {
             handlers.insert(name, handler);

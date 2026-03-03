@@ -20,23 +20,24 @@ States are the nodes in the agent's control graph. Each state has a single job:
 | `Done` | Log completion (terminal) | No | No |
 | `Error` | Log failure (terminal) | No | No |
 
-### The `State` Enum
+### The `State` Type
+
+`State` is a **string-based newtype** — you can define any custom state:
 
 ```rust
-pub enum State {
-    Idle,
-    Planning,
-    Acting,
-    ParallelActing,
-    WaitingForHuman,
-    Observing,
-    Reflecting,
-    Done,
-    Error,
-}
+// Built-in states use constructors:
+State::idle()      // "Idle"
+State::planning()  // "Planning"
+State::acting()    // "Acting"
+State::done()      // "Done"
+State::error()     // "Error"
+
+// Custom states use ::new():
+State::new("Researching")
+State::new("MyCustomState")
 ```
 
-`State::Done` and `State::Error` are **terminal** — `is_terminal()` returns `true` for both, and the engine exits immediately when it reaches either.
+`State::done()` and `State::error()` are **terminal** — `is_terminal()` returns `true`, and the engine exits immediately when it reaches either. Custom terminal states can be registered via `.terminal_state("name")`.
 
 ### The `AgentState` Trait
 
@@ -50,14 +51,14 @@ pub trait AgentState: Send + Sync {
     async fn handle(
         &self,
         memory:    &mut AgentMemory,
-        tools:     &ToolRegistry,
+        tools:     &Arc<ToolRegistry>,
         llm:       &dyn AsyncLlmCaller,
         output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
     ) -> Event;
 }
 ```
 
-The `handle()` method **must always return an `Event`**. It must never panic. Errors should be written into `memory` and expressed as failure events.
+The `handle()` method **must always return an `Event`**. It must never panic. Errors should be written into `memory` and expressed as failure events. The `output_tx` channel is used to emit streaming events.
 
 ---
 
@@ -65,43 +66,37 @@ The `handle()` method **must always return an `Event`**. It must never panic. Er
 
 Events are the edges in the control graph — they drive transitions between states.
 
+`Event` is a **string-based newtype** with built-in constructors:
+
 ```rust
-pub enum Event {
-    // Lifecycle
-    Start,
+// Built-in events:
+Event::start()
+Event::llm_tool_call()
+Event::llm_parallel_tool_calls()
+Event::llm_final_answer()
+Event::max_steps()
+Event::low_confidence()
+Event::answer_too_short()
+Event::tool_blacklisted()
+Event::human_approval_required()
+Event::fatal_error()
+Event::human_approved()
+Event::human_rejected()
+Event::human_modified()
+Event::tool_success()
+Event::tool_failure()
+Event::continue_event()
+Event::needs_reflection()
+Event::reflect_done()
 
-    // Planning outcomes
-    LlmToolCall,             // LLM requested a tool call
-    LlmParallelToolCalls,   // LLM requested multiple tool calls
-    LlmFinalAnswer,          // LLM produced a final answer
-    MaxSteps,                // step counter hit the limit
-    LowConfidence,           // confidence below threshold, retry budget remaining
-    AnswerTooShort,          // final answer too short
-    ToolBlacklisted,         // LLM requested a blacklisted tool
-    HumanApprovalRequired,   // Approval required by policy
-    FatalError,              // unrecoverable LLM error
-
-    // Human connection
-    HumanApproved,           // User approved action
-    HumanRejected,           // User rejected action
-    HumanModified,           // User changed tool arguments
-
-    // Acting outcomes
-    ToolSuccess,             // tool executed successfully
-    ToolFailure,             // tool raised an error (becomes observation data)
-
-    // Observing outcomes
-    Continue,                // normal flow back to Planning
-    NeedsReflection,         // step count triggers history compression
-
-    // Reflecting outcomes
-    ReflectDone,             // compression complete, back to Planning
-}
+// Custom events:
+Event::new("NeedsResearch")
+Event::new("ResearchDone")
 ```
 
 ### Key Philosophy: Tool Failures Are Data
 
-`ToolFailure` is NOT a crash. When a tool returns an error, `ActingState` prefixes the result with `"ERROR: ..."`, stores it in `memory.last_observation`, and returns `Event::ToolFailure`. The engine transitions to `Observing`, which commits the error as a `HistoryEntry`. On the next `Planning` cycle, the LLM sees the error in its history and can decide how to recover.
+`ToolFailure` is NOT a crash. When a tool returns an error, `ActingState` prefixes the result with `"ERROR: ..."`, stores it in `memory.last_observation`, and returns `Event::tool_failure()`. The engine transitions to `Observing`, which commits the error as a `HistoryEntry`. On the next `Planning` cycle, the LLM sees the error in its history and can decide how to recover.
 
 ---
 
@@ -112,41 +107,43 @@ pub enum Event {
 ```rust
 pub struct AgentMemory {
     // Task definition
-    pub task:               String,         // The original task
+    pub task:               String,
     pub task_type:          String,         // "research" | "calculation" | "default"
-    pub system_prompt:      String,         // Prepended to every LLM call
+    pub system_prompt:      String,
 
     // Execution counters
-    pub step:               usize,          // Incremented by PlanningState only
-    pub retry_count:        usize,          // Low-confidence retries used
-    pub confidence_score:   f64,            // Last LLM confidence value
+    pub step:               usize,
+    pub retry_count:        usize,
+    pub confidence_score:   f64,
     pub total_usage:        TokenUsage,     // Accumulated token consumption
-    pub budget:             Option<TokenBudget>, // Resource limits
+    pub budget:             Option<TokenBudget>,
 
     // Tool call lifecycle
-    pub current_tool_call:  Option<ToolCall>,   // Set by Planning, cleared by Observing
+    pub current_tool_call:  Option<ToolCall>,
     pub pending_tool_calls: Vec<ToolCall>,      // For parallel execution
-    pub parallel_results:   Vec<ToolResult>,    // Collected results from parallel runs
-    pub last_observation:   Option<String>,     // Set by Acting, cleared by Observing
-    pub pending_approval:   Option<HumanApprovalRequest>, // For HITL
+    pub parallel_results:   Vec<ToolResult>,
+    pub last_observation:   Option<String>,
+    pub pending_approval:   Option<HumanApprovalRequest>,
 
     // Results
-    pub history:            Vec<HistoryEntry>,  // Append-only completed tool calls
-    pub final_answer:       Option<String>,     // Set by Planning on final answer
-    pub error:              Option<String>,     // Set on unrecoverable errors
+    pub history:            Vec<HistoryEntry>,
+    pub final_answer:       Option<String>,
+    pub error:              Option<String>,
 
     // Configuration
     pub config:             AgentConfig,
     pub blacklisted_tools:  HashSet<String>,
 
+    // Human-in-the-Loop
+    pub approval_policy:    ApprovalPolicy,
+    pub approval_callback:  Option<ApprovalCallback>,
+
     // Observability
-    pub trace:              Trace,              // Append-only event log
+    pub trace:              Trace,
 }
 ```
 
 ### Ownership Rules (Invariants)
-
-These are absolute. Violating them is a bug:
 
 | Field | Written by | Cleared by |
 |---|---|---|
@@ -157,14 +154,6 @@ These are absolute. Violating them is a bug:
 | `error` | `PlanningState`, `ActingState` | Never |
 | `history` | `ObservingState` (push only) | `ReflectingState` (compress) |
 | `trace` | Any state via `memory.log()` | Never |
-
-### Building LLM Messages
-
-`memory.build_messages()` constructs the full messages array for the LLM from the current state:
-
-1. System message (if `system_prompt` is non-empty)
-2. History entries as alternating assistant/user messages
-3. The current task as the final user message
 
 ---
 
@@ -178,41 +167,41 @@ pub type TransitionTable = HashMap<(State, Event), State>;
 
 Every legal transition is explicitly declared in `build_transition_table()`:
 
-```rust
+```
 // IDLE
-(Idle,       Start)           → Planning
+(Idle, Start) → Planning
 
 // PLANNING
-(Planning,   LlmToolCall)             → Acting
-(Planning,   LlmParallelToolCalls)   → ParallelActing
-(Planning,   LlmFinalAnswer)          → Done
-(Planning,   MaxSteps)                → Error
-(Planning,   LowConfidence)           → Reflecting
-(Planning,   AnswerTooShort)          → Planning
-(Planning,   ToolBlacklisted)         → Planning
-(Planning,   HumanApprovalRequired)   → WaitingForHuman
-(Planning,   FatalError)              → Error
+(Planning, LlmToolCall)           → Acting
+(Planning, LlmParallelToolCalls)  → ParallelActing
+(Planning, LlmFinalAnswer)        → Done
+(Planning, MaxSteps)              → Error
+(Planning, LowConfidence)         → Reflecting
+(Planning, AnswerTooShort)        → Planning
+(Planning, ToolBlacklisted)       → Planning
+(Planning, HumanApprovalRequired) → WaitingForHuman
+(Planning, FatalError)            → Error
 
 // WAITING FOR HUMAN
-(WaitingForHuman, HumanApproved)      → Acting
-(WaitingForHuman, HumanRejected)      → Observing
-(WaitingForHuman, HumanModified)      → Acting
+(WaitingForHuman, HumanApproved)  → Acting
+(WaitingForHuman, HumanRejected)  → Observing
+(WaitingForHuman, HumanModified)  → Acting
 
 // ACTING / PARALLEL ACTING
-(Acting,         ToolSuccess)         → Observing
-(Acting,         ToolFailure)         → Observing
-(ParallelActing, ToolSuccess)         → Observing
-(ParallelActing, ToolFailure)         → Observing
+(Acting,         ToolSuccess)     → Observing
+(Acting,         ToolFailure)     → Observing
+(ParallelActing, ToolSuccess)     → Observing
+(ParallelActing, ToolFailure)     → Observing
 
 // OBSERVING
-(Observing,  Continue)        → Planning
-(Observing,  NeedsReflection) → Reflecting
+(Observing,  Continue)            → Planning
+(Observing,  NeedsReflection)     → Reflecting
 
 // REFLECTING
-(Reflecting, ReflectDone)     → Planning
+(Reflecting, ReflectDone)         → Planning
 ```
 
-If the engine encounters a `(State, Event)` pair not in this table, it immediately returns `Err(AgentError::InvalidTransition)`.
+Custom transitions can be added via `.transition("FromState", "OnEvent", "ToState")`.
 
 ---
 
@@ -222,44 +211,24 @@ Controls the agent's behavior limits:
 
 ```rust
 pub struct AgentConfig {
-    pub max_steps:             usize,  // Hard cap on Planning cycles
-    pub max_retries:           usize,  // Low-confidence retry budget
-    pub confidence_threshold:  f64,    // Below this → LowConfidence event
-    pub reflect_every_n_steps: usize,  // Compress history every N steps
-    pub min_answer_length:     usize,  // Shorter answers → AnswerTooShort event
-    pub parallel_tools:        bool,   // Enable/disable parallel execution
+    pub max_steps:             usize,   // Hard cap on Planning cycles (default: 15)
+    pub max_retries:           usize,   // Low-confidence retry budget (default: 3)
+    pub confidence_threshold:  f64,     // Below this → LowConfidence event (default: 0.4)
+    pub reflect_every_n_steps: usize,   // Compress history every N steps (default: 5)
+    pub min_answer_length:     usize,   // Shorter answers → AnswerTooShort event (default: 5)
+    pub parallel_tools:        bool,    // Enable/disable parallel execution (default: true)
+    pub models:                HashMap<String, String>, // task_type → model name
+    pub output_schema:         Option<OutputSchema>,    // Structured output schema
 }
 ```
 
 ### Model Selection
 
-Model names are **not hardcoded** anywhere in the library. `PlanningState` reads them from `memory.config.models` at runtime:
+"Resolution priority: `config.models[task_type]` → `config.models["default"]` → `""` (LlmCaller decides).
 
-**Resolution priority:**
-1. `config.models[task_type]` — exact task-type match (e.g. `"calculation"`)
-2. `config.models["default"]` — generic fallback
-3. `""` — empty string, lets the `LlmCaller` use its own internal default
+### Structured Output
 
-**Setting models via the builder:**
-```rust
-AgentBuilder::new("task")
-    .model("gpt-4o")                            // sets "default" key
-    .model_for("calculation", "gpt-4o-mini")    // sets "calculation" key
-    .model_for("research",    "gpt-4o")         // sets "research" key
-```
-
-**Setting models via `AgentConfig`:**
-```rust
-AgentConfig {
-    models: [
-        ("default".to_string(),     "llama3.2".to_string()),
-        ("calculation".to_string(), "qwen2.5-coder:7b".to_string()),
-    ].into(),
-    ..Default::default()
-}
-```
-
-The `task_type` value you set on the builder is the lookup key. You can add any key names you like — the library doesn’t restrict the set of task type strings.
+When `output_schema` is set, the LLM is instructed to return JSON conforming to the schema. OpenAI uses `json_object` response format; Anthropic uses a synthetic tool.
 
 ---
 
@@ -267,22 +236,16 @@ The `task_type` value you set on the builder is the lookup key. You can add any 
 
 ### HistoryEntry
 
-Committed by `ObservingState` after each tool call cycle:
-
 ```rust
 pub struct HistoryEntry {
-    pub step:        usize,     // Which planning step this happened in
-    pub tool:        ToolCall,  // What tool was called with what args
+    pub step:        usize,
+    pub tool:        ToolCall,
     pub observation: String,    // "SUCCESS: ..." or "ERROR: ..."
-    pub success:     bool,      // Whether the tool succeeded
+    pub success:     bool,
 }
 ```
 
-History is included in every subsequent LLM call via `memory.build_messages()`.
-
 ### Trace
-
-The `Trace` is a complete, append-only event log of every state handler's significant actions:
 
 ```rust
 pub struct TraceEntry {
@@ -297,8 +260,8 @@ pub struct TraceEntry {
 Access after run:
 
 ```rust
-engine.trace().print();           // pretty table to stdout
-engine.trace().to_json();         // JSON string
-engine.trace().for_state("Planning"); // filter by state
-engine.trace().len();             // total entry count
+engine.trace().print();                // pretty table to stdout
+engine.trace().to_json();              // JSON string
+engine.trace().for_state("Planning");  // filter by state
+engine.trace().len();                  // total entry count
 ```

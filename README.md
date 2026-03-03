@@ -12,6 +12,7 @@
 |---|---|
 | **Hybrid State Machine** | 9 built-in states with a fully extensible transition table |
 | **LLM Providers** | OpenAI, Anthropic (Claude), and any OpenAI-compatible API (Groq, Ollama, Together, etc.) |
+| **Structured Output** | Force LLM to return JSON conforming to a user-defined schema |
 | **Streaming** | Real-time token streaming with `run_streaming()` |
 | **Parallel Tool Execution** | Execute multiple tool calls concurrently via `tokio::spawn` |
 | **Human-in-the-Loop (HIP)** | Approval workflows with `AlwaysAsk`, `NeverAsk`, `AskAbove(RiskLevel)`, and `ToolBased` policies |
@@ -207,6 +208,7 @@ MaxSteps / FatalError from any state ──▶ ERROR (terminal)
 | `.parallel_tools(true)` | Enable parallel tool execution |
 | `.approval_policy(policy)` | Set human-in-the-loop policy |
 | `.on_approval(callback)` | Set the approval callback function |
+| `.output_schema(name, schema)` | Request structured JSON output conforming to schema |
 | `.checkpoint_store(store)` | Enable checkpointing with a store |
 | `.session_id(id)` | Set session ID for checkpointing |
 | `.resume(session_id).await?` | Resume from a checkpoint |
@@ -240,6 +242,35 @@ while let Some(output) = stream.next().await {
     }
 }
 ```
+
+---
+
+## Structured Output
+
+Force the LLM to return JSON conforming to a user-defined schema:
+
+```rust
+let mut engine = AgentBuilder::new("Extract info about Rust")
+    .openai("")
+    .output_schema("language_info", json!({
+        "type": "object",
+        "properties": {
+            "name": { "type": "string" },
+            "year": { "type": "integer" },
+            "paradigms": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["name", "year", "paradigms"]
+    }))
+    .build()?;
+
+let answer = engine.run().await?;
+let parsed: serde_json::Value = serde_json::from_str(&answer)?;
+assert_eq!(parsed["name"], "Rust");
+```
+
+**Provider implementations:**
+- **OpenAI** → `response_format: json_object` + schema injected into system prompt
+- **Anthropic** → Synthetic tool with schema as `input_schema`
 
 ---
 

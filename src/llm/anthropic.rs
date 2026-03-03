@@ -147,17 +147,48 @@ impl AsyncLlmCaller for AnthropicCaller {
         model:  &str,
         _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<crate::types::AgentOutput>>,
     ) -> Result<LlmResponse, String> {
-        let system = if memory.system_prompt.is_empty() {
-            None
-        } else {
-            Some(memory.system_prompt.clone())
+        let has_output_schema = memory.config.output_schema.is_some();
+        let structured_tool_name = "__structured_output";
+
+        let system = {
+            let base = if memory.system_prompt.is_empty() {
+                None
+            } else {
+                Some(memory.system_prompt.clone())
+            };
+
+            // For structured output, append instructions to use the synthetic tool
+            if let Some(ref _schema) = memory.config.output_schema {
+                let extra = format!(
+                    "\n\nYou MUST use the '{}' tool to provide your response. \
+                     Format your answer as the tool's input arguments conforming to the schema. \
+                     Do not respond with plain text.",
+                    structured_tool_name
+                );
+                Some(format!("{}{}", base.unwrap_or_default(), extra))
+            } else {
+                base
+            }
         };
+
+        // Build tool definitions
+        let mut tool_defs = Self::build_tool_defs(tools);
+
+        // For structured output, add a synthetic tool with the schema
+        if let Some(ref schema) = memory.config.output_schema {
+            tool_defs.push(AnthropicToolDef {
+                name:         structured_tool_name.to_string(),
+                description:  schema.description.clone()
+                    .unwrap_or_else(|| format!("Provide structured output for: {}", schema.name)),
+                input_schema: schema.schema.clone(),
+            });
+        }
 
         let body = AnthropicRequest {
             model:      model.to_string(),
             max_tokens: 4096,
             system,
-            tools:      Self::build_tool_defs(tools),
+            tools:      tool_defs,
             messages:   Self::build_messages(memory),
             stream:     false,
         };
@@ -191,6 +222,10 @@ impl AsyncLlmCaller for AnthropicCaller {
         for block in parsed.content {
             match block {
                 AnthropicContentBlock::ToolUse { id, name, input, .. } => {
+                    // Check if this is our synthetic structured output tool
+                    if has_output_schema && name == structured_tool_name {
+                        return Ok(LlmResponse::Structured { data: input, usage });
+                    }
                     let args = serde_json::from_value(input)
                         .map_err(|e| format!("Invalid tool args: {}", e))?;
                     tool_calls.push(ToolCall { name, args, id: Some(id) });

@@ -3,23 +3,22 @@
 //! All tests use `MockLlmCaller` — no network calls are made.
 //! Run with: `cargo test`
 
-use agentsm::{
-    AgentBuilder, AgentEngine, AgentError,
-    Event, LlmResponse, State, ToolCall,
-    ToolRegistry, AgentOutput, LlmStreamChunk,
-};
 use agentsm::llm::AsyncLlmCaller;
-use async_trait::async_trait;
 use agentsm::llm::MockLlmCaller;
-use std::sync::Arc;
 use agentsm::memory::AgentMemory;
 use agentsm::states::{
-    AgentState, IdleState, PlanningState, ActingState,
-    ObservingState, ReflectingState, DoneState, ErrorState,
+    ActingState, AgentState, DoneState, ErrorState, IdleState, ObservingState, PlanningState,
+    ReflectingState,
 };
 use agentsm::transitions::build_transition_table;
+use agentsm::{
+    AgentBuilder, AgentEngine, AgentError, AgentOutput, Event, LlmResponse, LlmStreamChunk, State,
+    ToolCall, ToolRegistry,
+};
+use async_trait::async_trait;
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test helpers
@@ -38,17 +37,17 @@ fn make_tool_call_response(name: &str) -> LlmResponse {
         tool: ToolCall {
             name: name.to_string(),
             args: HashMap::new(),
-            id:   None,
+            id: None,
         },
         confidence: 1.0,
-        usage:      None,
+        usage: None,
     }
 }
 
 fn make_final_answer(content: &str) -> LlmResponse {
     LlmResponse::FinalAnswer {
         content: content.to_string(),
-        usage:   None,
+        usage: None,
     }
 }
 
@@ -85,8 +84,8 @@ fn make_bare_engine(mock: MockLlmCaller) -> AgentEngine {
 #[tokio::test]
 async fn test_idle_to_planning_transition() {
     let mut memory = test_memory();
-    let tools      = test_tools();
-    let llm        = make_mock_llm(vec![make_final_answer("The answer to life is 42.")]);
+    let tools = test_tools();
+    let llm = make_mock_llm(vec![make_final_answer("The answer to life is 42.")]);
 
     let idle = IdleState;
     let tools = Arc::new(tools);
@@ -97,7 +96,11 @@ async fn test_idle_to_planning_transition() {
     // Verify the transition table maps (Idle, Start) → Planning
     let table = build_transition_table();
     let next = table.get(&(State::idle(), Event::start()));
-    assert_eq!(next, Some(&State::planning()), "Idle + Start should transition to Planning");
+    assert_eq!(
+        next,
+        Some(&State::planning()),
+        "Idle + Start should transition to Planning"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,14 +113,21 @@ async fn test_planning_max_steps_guard() {
     memory.step = memory.config.max_steps; // already at the limit
 
     let tools = test_tools();
-    let llm   = make_mock_llm(vec![]);  // Should never be called
+    let llm = make_mock_llm(vec![]); // Should never be called
 
     let state = PlanningState;
     let tools = Arc::new(tools);
     let event = state.handle(&mut memory, &tools, &llm, None).await;
 
-    assert_eq!(event, Event::max_steps(), "PlanningState must return MaxSteps when step >= max_steps");
-    assert!(memory.error.is_some(), "memory.error must be set on MaxSteps");
+    assert_eq!(
+        event,
+        Event::max_steps(),
+        "PlanningState must return MaxSteps when step >= max_steps"
+    );
+    assert!(
+        memory.error.is_some(),
+        "memory.error must be set on MaxSteps"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,14 +154,23 @@ async fn test_planning_tool_blacklist() {
         .expect("builder should succeed");
 
     let result = engine.run().await;
-    assert!(result.is_ok(), "Agent should complete despite blacklisted tool call: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Agent should complete despite blacklisted tool call: {:?}",
+        result
+    );
 
     // Verify the trace contains the blacklist event
-    let blacklist_entries: Vec<_> = engine.trace().entries()
+    let blacklist_entries: Vec<_> = engine
+        .trace()
+        .entries()
         .iter()
         .filter(|e| e.event == "TOOL_BLACKLISTED")
         .collect();
-    assert!(!blacklist_entries.is_empty(), "Trace should record TOOL_BLACKLISTED event");
+    assert!(
+        !blacklist_entries.is_empty(),
+        "Trace should record TOOL_BLACKLISTED event"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,19 +183,26 @@ async fn test_acting_unknown_tool_is_failure_not_crash() {
     memory.current_tool_call = Some(ToolCall {
         name: "nonexistent_tool".to_string(),
         args: HashMap::new(),
-        id:   None,
+        id: None,
     });
 
     let tools = test_tools(); // empty — tool not registered
-    let llm   = make_mock_llm(vec![]);
+    let llm = make_mock_llm(vec![]);
 
     let state = ActingState;
     let tools = Arc::new(tools);
     let event = state.handle(&mut memory, &tools, &llm, None).await;
 
-    assert_eq!(event, Event::tool_failure(), "Unknown tool must produce ToolFailure, not FatalError or panic");
+    assert_eq!(
+        event,
+        Event::tool_failure(),
+        "Unknown tool must produce ToolFailure, not FatalError or panic"
+    );
     assert!(
-        memory.last_observation.as_ref().map_or(false, |o| o.starts_with("ERROR:")),
+        memory
+            .last_observation
+            .as_ref()
+            .map_or(false, |o| o.starts_with("ERROR:")),
         "last_observation must be prefixed with 'ERROR:'"
     );
 }
@@ -195,18 +221,22 @@ async fn test_observing_triggers_reflection_at_step_5() {
     memory.current_tool_call = Some(ToolCall {
         name: "dummy".to_string(),
         args: HashMap::new(),
-        id:   None,
+        id: None,
     });
     memory.last_observation = Some("SUCCESS: some result".to_string());
 
     let tools = test_tools();
-    let llm   = make_mock_llm(vec![]);
+    let llm = make_mock_llm(vec![]);
 
     let state = ObservingState;
     let tools = Arc::new(tools);
     let event = state.handle(&mut memory, &tools, &llm, None).await;
 
-    assert_eq!(event, Event::needs_reflection(), "ObservingState must emit NeedsReflection at step % interval == 0");
+    assert_eq!(
+        event,
+        Event::needs_reflection(),
+        "ObservingState must emit NeedsReflection at step % interval == 0"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,26 +251,38 @@ async fn test_observing_commits_to_history() {
 
     memory.current_tool_call = Some(ToolCall {
         name: "search".to_string(),
-        args: HashMap::from([
-            ("query".to_string(), json!("Rust language")),
-        ]),
-        id:   None,
+        args: HashMap::from([("query".to_string(), json!("Rust language"))]),
+        id: None,
     });
     memory.last_observation = Some("SUCCESS: Rust is a systems programming language.".to_string());
 
     let tools = test_tools();
-    let llm   = make_mock_llm(vec![]);
+    let llm = make_mock_llm(vec![]);
 
     let state = ObservingState;
     let tools = Arc::new(tools);
     let event = state.handle(&mut memory, &tools, &llm, None).await;
 
-    assert_eq!(event, Event::r#continue(), "ObservingState should return Continue between reflections");
-    assert_eq!(memory.history.len(), 1, "One HistoryEntry should be committed");
+    assert_eq!(
+        event,
+        Event::r#continue(),
+        "ObservingState should return Continue between reflections"
+    );
+    assert_eq!(
+        memory.history.len(),
+        1,
+        "One HistoryEntry should be committed"
+    );
     assert_eq!(memory.history[0].tool.name, "search");
     assert!(memory.history[0].success, "Entry should be marked success");
-    assert!(memory.current_tool_call.is_none(), "current_tool_call must be cleared");
-    assert!(memory.last_observation.is_none(), "last_observation must be cleared");
+    assert!(
+        memory.current_tool_call.is_none(),
+        "current_tool_call must be cleared"
+    );
+    assert!(
+        memory.last_observation.is_none(),
+        "last_observation must be cleared"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,10 +301,17 @@ async fn test_full_run_with_mock_llm() {
     let mut engine = make_engine_with_mock(mock);
     let result = engine.run().await;
 
-    assert!(result.is_ok(), "Agent should complete successfully: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Agent should complete successfully: {:?}",
+        result
+    );
     let answer = result.unwrap();
     assert!(!answer.is_empty(), "Final answer must not be empty");
-    assert!(answer.contains("42"), "Final answer should contain expected content");
+    assert!(
+        answer.contains("42"),
+        "Final answer should contain expected content"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -281,7 +330,8 @@ async fn test_full_run_reaches_done_state() {
 
     assert!(result.is_ok(), "Agent should complete: {:?}", result);
     assert_eq!(
-        engine.current_state(), &State::done(),
+        engine.current_state(),
+        &State::done(),
         "Engine must be in Done state after successful completion"
     );
 }
@@ -299,19 +349,27 @@ async fn test_invalid_transition_returns_error() {
     memory.step = 1; // already at max
 
     let tools = test_tools();
-    let llm   = make_mock_llm(vec![]); // should never be called
+    let llm = make_mock_llm(vec![]); // should never be called
 
     let state = PlanningState;
     let tools = Arc::new(tools);
     let event = state.handle(&mut memory, &tools, &llm, None).await;
 
-    assert_eq!(event, Event::max_steps(), "PlanningState must emit MaxSteps when step >= max_steps");
+    assert_eq!(
+        event,
+        Event::max_steps(),
+        "PlanningState must emit MaxSteps when step >= max_steps"
+    );
     assert!(memory.error.is_some(), "memory.error must be set");
 
     // Also verify the transition table routes MaxSteps → Error
     let table = build_transition_table();
-    let next  = table.get(&(State::planning(), Event::max_steps()));
-    assert_eq!(next, Some(&State::error()), "MaxSteps should transition to Error state");
+    let next = table.get(&(State::planning(), Event::max_steps()));
+    assert_eq!(
+        next,
+        Some(&State::error()),
+        "MaxSteps should transition to Error state"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -333,13 +391,22 @@ async fn test_trace_records_all_steps() {
 
     // Verify expected states appear in the trace
     let idle_entries = trace.for_state("Idle");
-    assert!(!idle_entries.is_empty(), "Trace must contain Idle state entries");
+    assert!(
+        !idle_entries.is_empty(),
+        "Trace must contain Idle state entries"
+    );
 
     let planning_entries = trace.for_state("Planning");
-    assert!(!planning_entries.is_empty(), "Trace must contain Planning state entries");
+    assert!(
+        !planning_entries.is_empty(),
+        "Trace must contain Planning state entries"
+    );
 
     let acting_entries = trace.for_state("Acting");
-    assert!(!acting_entries.is_empty(), "Trace must contain Acting state entries");
+    assert!(
+        !acting_entries.is_empty(),
+        "Trace must contain Acting state entries"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -349,13 +416,19 @@ async fn test_trace_records_all_steps() {
 #[tokio::test]
 async fn test_tool_registry_execute_unknown_returns_err() {
     let registry = ToolRegistry::new(); // empty registry
-    let args     = HashMap::new();
+    let args = HashMap::new();
 
     let result = registry.execute("nonexistent_tool", &args);
 
-    assert!(result.is_err(), "Executing unknown tool should return Err, not panic");
+    assert!(
+        result.is_err(),
+        "Executing unknown tool should return Err, not panic"
+    );
     let err = result.unwrap_err();
-    assert!(err.contains("not found"), "Error message should mention 'not found'");
+    assert!(
+        err.contains("not found"),
+        "Error message should mention 'not found'"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -365,8 +438,8 @@ async fn test_tool_registry_execute_unknown_returns_err() {
 #[tokio::test]
 async fn test_mock_llm_call_count() {
     let mock = make_mock_llm(vec![
-        make_tool_call_response("dummy"),  // call 1
-        make_tool_call_response("dummy"),  // call 2
+        make_tool_call_response("dummy"), // call 1
+        make_tool_call_response("dummy"), // call 2
         make_final_answer("Three LLM calls to complete this mock test run."), // call 3
     ]);
 
@@ -387,20 +460,23 @@ async fn test_mock_llm_call_count() {
     engine.run().await.expect("Agent should complete");
 
     // Verify via trace: Planning state should have 3 STEP_START entries
-    let planning_steps: Vec<_> = engine.trace()
+    let planning_steps: Vec<_> = engine
+        .trace()
         .entries()
         .iter()
         .filter(|e| e.state == "Planning" && e.event == "STEP_START")
         .collect();
 
     assert_eq!(
-        planning_steps.len(), 3,
+        planning_steps.len(),
+        3,
         "There should be exactly 3 planning steps (3 LLM calls)"
     );
 
     // Also verify history has 2 entries (2 tool calls succeeded)
     assert_eq!(
-        engine.memory.history.len(), 2,
+        engine.memory.history.len(),
+        2,
         "History should have 2 completed tool calls"
     );
 
@@ -421,16 +497,24 @@ async fn test_agent_config_respected() {
     memory.step = 3; // simulate: 3 steps have been used, at the limit
 
     let tools = test_tools();
-    let llm   = make_mock_llm(vec![]);
+    let llm = make_mock_llm(vec![]);
 
     let state = PlanningState;
     let tools = Arc::new(tools);
     let event = state.handle(&mut memory, &tools, &llm, None).await;
 
-    assert_eq!(event, Event::max_steps(), "AgentConfig max_steps must be enforced by PlanningState");
+    assert_eq!(
+        event,
+        Event::max_steps(),
+        "AgentConfig max_steps must be enforced by PlanningState"
+    );
     assert!(
-        memory.error.as_ref().map_or(false, |e| e.contains("Max steps")),
-        "memory.error should mention max steps, got: {:?}", memory.error
+        memory
+            .error
+            .as_ref()
+            .map_or(false, |e| e.contains("Max steps")),
+        "memory.error should mention max steps, got: {:?}",
+        memory.error
     );
 }
 
@@ -450,7 +534,8 @@ async fn test_builder_requires_llm() {
         AgentError::BuildError(msg) => {
             assert!(
                 msg.to_lowercase().contains("llm") || msg.to_lowercase().contains("required"),
-                "BuildError should mention LLM: {}", msg
+                "BuildError should mention LLM: {}",
+                msg
             );
         }
         other => panic!("Expected BuildError, got: {:?}", other),
@@ -506,9 +591,8 @@ async fn test_tool_builder_produces_valid_schema() {
     );
 
     // Execute the tool
-    let args: HashMap<String, serde_json::Value> = [
-        ("query".to_string(), json!("Rust programming")),
-    ].into();
+    let args: HashMap<String, serde_json::Value> =
+        [("query".to_string(), json!("Rust programming"))].into();
     let result = registry.execute("search", &args);
     assert!(result.is_ok());
     assert!(result.unwrap().contains("Rust programming"));
@@ -533,9 +617,12 @@ async fn test_add_tool_with_builder() {
             Tool::new("calculator", "Evaluate math expressions")
                 .param("expression", "string", "The expression to evaluate")
                 .call(|args| {
-                    let expr = args.get("expression").and_then(|v| v.as_str()).unwrap_or("0");
+                    let expr = args
+                        .get("expression")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("0");
                     Ok(format!("Result: {} = 4", expr))
-                })
+                }),
         )
         .build()
         .expect("build should succeed");
@@ -550,9 +637,9 @@ async fn test_add_tool_with_builder() {
 
 #[tokio::test]
 async fn test_retry_recovers_after_transient_error() {
+    use agentsm::llm::LlmCaller;
     use agentsm::llm::MockLlmCaller;
     use agentsm::RetryingLlmCaller;
-    use agentsm::llm::LlmCaller;
 
     // Create a custom mock that fails twice, succeeds on third try
     // We can't use MockLlmCaller directly for error simulation,
@@ -567,10 +654,22 @@ async fn test_retry_recovers_after_transient_error() {
 
     #[async_trait]
     impl agentsm::llm::AsyncLlmCaller for FailNTimesCaller {
-        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> Result<LlmResponse, String> {
-             agentsm::llm::LlmCaller::call(self, memory, tools, model)
+        async fn call_async(
+            &self,
+            memory: &AgentMemory,
+            tools: &ToolRegistry,
+            model: &str,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
+        ) -> Result<LlmResponse, String> {
+            agentsm::llm::LlmCaller::call(self, memory, tools, model)
         }
-        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
+        fn call_stream_async<'a>(
+            &'a self,
+            m: &'a AgentMemory,
+            t: &'a ToolRegistry,
+            mo: &'a str,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
+        ) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
             use futures::stream::{self, StreamExt};
             let resp = agentsm::llm::LlmCaller::call(self, m, t, mo);
             match resp {
@@ -584,15 +683,20 @@ async fn test_retry_recovers_after_transient_error() {
         fn call(
             &self,
             _memory: &AgentMemory,
-            _tools:  &ToolRegistry,
-            _model:  &str,
+            _tools: &ToolRegistry,
+            _model: &str,
         ) -> Result<LlmResponse, String> {
             let count = self.fail_count.fetch_add(1, Ordering::SeqCst);
             if count < self.failures_left {
-                Err(format!("HTTP 503 Service Unavailable (attempt {})", count + 1))
+                Err(format!(
+                    "HTTP 503 Service Unavailable (attempt {})",
+                    count + 1
+                ))
             } else {
                 Ok(LlmResponse::FinalAnswer {
-                    content: "Successfully recovered after transient failures with a complete answer.".to_string(),
+                    content:
+                        "Successfully recovered after transient failures with a complete answer."
+                            .to_string(),
                     usage: None,
                 })
             }
@@ -607,11 +711,21 @@ async fn test_retry_recovers_after_transient_error() {
     let retrying = RetryingLlmCaller::new(inner, 3);
 
     let memory = test_memory();
-    let tools  = test_tools();
+    let tools = test_tools();
 
-    let result = retrying.call_async(&memory, &tools, "test-model", None).await;
-    assert!(result.is_ok(), "Should recover after transient errors: {:?}", result);
-    assert_eq!(counter.load(Ordering::SeqCst), 3, "Should have been called 3 times total");
+    let result = retrying
+        .call_async(&memory, &tools, "test-model", None)
+        .await;
+    assert!(
+        result.is_ok(),
+        "Should recover after transient errors: {:?}",
+        result
+    );
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        3,
+        "Should have been called 3 times total"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -620,8 +734,8 @@ async fn test_retry_recovers_after_transient_error() {
 
 #[tokio::test]
 async fn test_retry_auth_error_fails_fast() {
-    use agentsm::RetryingLlmCaller;
     use agentsm::llm::LlmCaller;
+    use agentsm::RetryingLlmCaller;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -631,10 +745,22 @@ async fn test_retry_auth_error_fails_fast() {
 
     #[async_trait]
     impl agentsm::llm::AsyncLlmCaller for AuthErrorCaller {
-        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> Result<LlmResponse, String> {
-             agentsm::llm::LlmCaller::call(self, memory, tools, model)
+        async fn call_async(
+            &self,
+            memory: &AgentMemory,
+            tools: &ToolRegistry,
+            model: &str,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
+        ) -> Result<LlmResponse, String> {
+            agentsm::llm::LlmCaller::call(self, memory, tools, model)
         }
-        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
+        fn call_stream_async<'a>(
+            &'a self,
+            m: &'a AgentMemory,
+            t: &'a ToolRegistry,
+            mo: &'a str,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
+        ) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
             use futures::stream::{self, StreamExt};
             let resp = agentsm::llm::LlmCaller::call(self, m, t, mo);
             match resp {
@@ -648,8 +774,8 @@ async fn test_retry_auth_error_fails_fast() {
         fn call(
             &self,
             _memory: &AgentMemory,
-            _tools:  &ToolRegistry,
-            _model:  &str,
+            _tools: &ToolRegistry,
+            _model: &str,
         ) -> Result<LlmResponse, String> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             Err("HTTP 401 Unauthorized - Invalid API key".to_string())
@@ -663,11 +789,17 @@ async fn test_retry_auth_error_fails_fast() {
     let retrying = RetryingLlmCaller::new(inner, 3);
 
     let memory = test_memory();
-    let tools  = test_tools();
+    let tools = test_tools();
 
-    let result = retrying.call_async(&memory, &tools, "test-model", None).await;
+    let result = retrying
+        .call_async(&memory, &tools, "test-model", None)
+        .await;
     assert!(result.is_err(), "Auth errors should not be retried");
-    assert_eq!(counter.load(Ordering::SeqCst), 1, "Should only be called once — no retry");
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "Should only be called once — no retry"
+    );
     assert!(result.unwrap_err().contains("401"));
 }
 
@@ -685,16 +817,22 @@ async fn test_custom_state_graph() {
 
     #[async_trait]
     impl AgentState for ResearchingState {
-        fn name(&self) -> &'static str { "Researching" }
+        fn name(&self) -> &'static str {
+            "Researching"
+        }
 
         async fn handle(
             &self,
-            memory:    &mut AgentMemory,
-            _tools:    &std::sync::Arc<ToolRegistry>,
-            _llm:      &dyn agentsm::llm::AsyncLlmCaller,
+            memory: &mut AgentMemory,
+            _tools: &std::sync::Arc<ToolRegistry>,
+            _llm: &dyn agentsm::llm::AsyncLlmCaller,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
-            memory.log("Researching", "RESEARCH_COMPLETE", "Custom research work done");
+            memory.log(
+                "Researching",
+                "RESEARCH_COMPLETE",
+                "Custom research work done",
+            );
             // Emit a custom event
             Event::new("ResearchDone")
         }
@@ -708,10 +846,22 @@ async fn test_custom_state_graph() {
 
     #[async_trait]
     impl agentsm::llm::AsyncLlmCaller for ResearchTriggerLlm {
-        async fn call_async(&self, memory: &AgentMemory, tools: &ToolRegistry, model: &str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> Result<LlmResponse, String> {
-             self.call(memory, tools, model)
+        async fn call_async(
+            &self,
+            memory: &AgentMemory,
+            tools: &ToolRegistry,
+            model: &str,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
+        ) -> Result<LlmResponse, String> {
+            self.call(memory, tools, model)
         }
-        fn call_stream_async<'a>(&'a self, m: &'a AgentMemory, t: &'a ToolRegistry, mo: &'a str, _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
+        fn call_stream_async<'a>(
+            &'a self,
+            m: &'a AgentMemory,
+            t: &'a ToolRegistry,
+            mo: &'a str,
+            _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
+        ) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
             use futures::stream::{self, StreamExt};
             let resp = self.call(m, t, mo);
             match resp {
@@ -725,21 +875,25 @@ async fn test_custom_state_graph() {
         fn call(
             &self,
             _memory: &AgentMemory,
-            _tools:  &ToolRegistry,
-            _model:  &str,
+            _tools: &ToolRegistry,
+            _model: &str,
         ) -> Result<LlmResponse, String> {
-            let count = self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let count = self
+                .call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if count == 0 {
                 // First call: return a final answer that will be "too short"
                 // to force replanning. But we need a different approach —
                 // let's emit a tool call to a special "research" tool.
                 Ok(LlmResponse::FinalAnswer {
-                    content: "After thorough research, the answer to the question is 42.".to_string(),
+                    content: "After thorough research, the answer to the question is 42."
+                        .to_string(),
                     usage: None,
                 })
             } else {
                 Ok(LlmResponse::FinalAnswer {
-                    content: "Completed with research findings — the answer is definitely 42.".to_string(),
+                    content: "Completed with research findings — the answer is definitely 42."
+                        .to_string(),
                     usage: None,
                 })
             }
@@ -757,16 +911,20 @@ async fn test_custom_state_graph() {
 
     #[async_trait]
     impl AgentState for CustomPlanningState {
-        fn name(&self) -> &'static str { "Planning" }
+        fn name(&self) -> &'static str {
+            "Planning"
+        }
 
         async fn handle(
             &self,
-            memory:    &mut AgentMemory,
-            _tools:    &std::sync::Arc<ToolRegistry>,
-            _llm:      &dyn agentsm::llm::AsyncLlmCaller,
+            memory: &mut AgentMemory,
+            _tools: &std::sync::Arc<ToolRegistry>,
+            _llm: &dyn agentsm::llm::AsyncLlmCaller,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
-            let count = self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let count = self
+                .call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             memory.step += 1;
             memory.log("Planning", "STEP_START", &format!("step={}", memory.step));
 
@@ -792,9 +950,12 @@ async fn test_custom_state_graph() {
         // Register custom state
         .state("Researching", Arc::new(ResearchingState))
         // Override default Planning with our custom one
-        .state("Planning", Arc::new(CustomPlanningState {
-            call_count: std::sync::atomic::AtomicUsize::new(0),
-        }))
+        .state(
+            "Planning",
+            Arc::new(CustomPlanningState {
+                call_count: std::sync::atomic::AtomicUsize::new(0),
+            }),
+        )
         // Add custom transitions
         .transition("Planning", "NeedsResearch", "Researching")
         .transition("Researching", "ResearchDone", "Planning")
@@ -802,7 +963,11 @@ async fn test_custom_state_graph() {
         .expect("build with custom states should succeed");
 
     let result = engine.run().await;
-    assert!(result.is_ok(), "Agent with custom states should complete: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Agent with custom states should complete: {:?}",
+        result
+    );
     assert_eq!(engine.current_state(), &State::done());
 
     // Verify the Researching state was actually visited
@@ -813,7 +978,9 @@ async fn test_custom_state_graph() {
     );
 
     // Verify the custom event was recorded
-    let research_done: Vec<_> = engine.trace().entries()
+    let research_done: Vec<_> = engine
+        .trace()
+        .entries()
         .iter()
         .filter(|e| e.event == "RESEARCH_COMPLETE")
         .collect();
@@ -836,13 +1003,15 @@ async fn test_custom_terminal_state() {
 
     #[async_trait]
     impl AgentState for CustomDoneState {
-        fn name(&self) -> &'static str { "CustomDone" }
+        fn name(&self) -> &'static str {
+            "CustomDone"
+        }
 
         async fn handle(
             &self,
-            memory:    &mut AgentMemory,
-            _tools:    &std::sync::Arc<ToolRegistry>,
-            _llm:      &dyn agentsm::llm::AsyncLlmCaller,
+            memory: &mut AgentMemory,
+            _tools: &std::sync::Arc<ToolRegistry>,
+            _llm: &dyn agentsm::llm::AsyncLlmCaller,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             memory.final_answer = Some("Custom terminal state reached!".to_string());
@@ -856,13 +1025,15 @@ async fn test_custom_terminal_state() {
 
     #[async_trait]
     impl AgentState for ImmediateCustomDonePlanning {
-        fn name(&self) -> &'static str { "Planning" }
+        fn name(&self) -> &'static str {
+            "Planning"
+        }
 
         async fn handle(
             &self,
-            memory:    &mut AgentMemory,
-            _tools:    &std::sync::Arc<ToolRegistry>,
-            _llm:      &dyn agentsm::llm::AsyncLlmCaller,
+            memory: &mut AgentMemory,
+            _tools: &std::sync::Arc<ToolRegistry>,
+            _llm: &dyn agentsm::llm::AsyncLlmCaller,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             memory.step += 1;
@@ -884,20 +1055,74 @@ async fn test_custom_terminal_state() {
         .expect("build should succeed");
 
     let result = engine.run().await;
-    assert!(result.is_ok(), "Agent should complete via custom terminal state: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Agent should complete via custom terminal state: {:?}",
+        result
+    );
 
     let answer = result.unwrap();
-    assert!(answer.contains("custom done"), "Final answer should mention custom done");
+    assert!(
+        answer.contains("custom done"),
+        "Final answer should mention custom done"
+    );
     assert_eq!(engine.current_state(), &State::new("CustomDone"));
 }
 #[tokio::test]
 async fn test_full_run_async_streaming() {
-    let mock = make_mock_llm(vec![
-        make_final_answer("Hello async world!"),
-    ]);
+    let mock = make_mock_llm(vec![make_final_answer("Hello async world!")]);
 
     let mut engine = make_engine_with_mock(mock);
     let result = engine.run().await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "Hello async world!");
+}
+
+#[tokio::test]
+async fn test_structured_output() {
+    // Simulate an LLM returning structured JSON output
+    let structured_data = json!({
+        "name": "Rust",
+        "year": 2010,
+        "paradigms": ["systems", "concurrent", "functional"]
+    });
+
+    let mock = Arc::new(MockLlmCaller::new(vec![LlmResponse::Structured {
+        data: structured_data.clone(),
+        usage: None,
+    }]));
+
+    let mut engine = AgentBuilder::new("Extract language info about Rust")
+        .llm(mock)
+        .output_schema(
+            "language_info",
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" },
+                    "year": { "type": "integer" },
+                    "paradigms": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["name", "year", "paradigms"]
+            }),
+        )
+        .build()
+        .expect("build should succeed");
+
+    let result = engine.run().await;
+    assert!(
+        result.is_ok(),
+        "Structured output agent should succeed: {:?}",
+        result
+    );
+
+    let answer = result.unwrap();
+    // The answer should be valid JSON
+    let parsed: serde_json::Value =
+        serde_json::from_str(&answer).expect("Answer should be valid JSON");
+    assert_eq!(parsed["name"], "Rust");
+    assert_eq!(parsed["year"], 2010);
+    assert_eq!(parsed["paradigms"][0], "systems");
+
+    assert_eq!(engine.current_state(), &State::done());
 }

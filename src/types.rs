@@ -34,39 +34,79 @@ impl State {
     }
 
     // ── Well-known built-in state constructors ──────────────────────────
-    pub fn idle()       -> Self { Self::new("Idle") }
-    pub fn planning()   -> Self { Self::new("Planning") }
-    pub fn acting()     -> Self { Self::new("Acting") }
-    pub fn observing()  -> Self { Self::new("Observing") }
-    pub fn reflecting() -> Self { Self::new("Reflecting") }
-    pub fn done()       -> Self { Self::new("Done") }
-    pub fn error()      -> Self { Self::new("Error") }
-    pub fn parallel_acting() -> Self { Self::new("ParallelActing") }
-    pub fn waiting_for_human() -> Self { Self::new("WaitingForHuman") }
+    pub fn idle() -> Self {
+        Self::new("Idle")
+    }
+    pub fn planning() -> Self {
+        Self::new("Planning")
+    }
+    pub fn acting() -> Self {
+        Self::new("Acting")
+    }
+    pub fn observing() -> Self {
+        Self::new("Observing")
+    }
+    pub fn reflecting() -> Self {
+        Self::new("Reflecting")
+    }
+    pub fn done() -> Self {
+        Self::new("Done")
+    }
+    pub fn error() -> Self {
+        Self::new("Error")
+    }
+    pub fn parallel_acting() -> Self {
+        Self::new("ParallelActing")
+    }
+    pub fn waiting_for_human() -> Self {
+        Self::new("WaitingForHuman")
+    }
 }
 
 /// Result of a single tool execution in a parallel batch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
-    pub tool_name:  String,
-    pub tool_args:  HashMap<String, serde_json::Value>,
-    pub id:         Option<String>,
-    pub output:     String,      // "SUCCESS: ..." or "ERROR: ..."
-    pub success:    bool,
+    pub tool_name: String,
+    pub tool_args: HashMap<String, serde_json::Value>,
+    pub id: Option<String>,
+    pub output: String, // "SUCCESS: ..." or "ERROR: ..."
+    pub success: bool,
     pub latency_ms: u64,
 }
 
 impl ToolResult {
-    pub fn success(tool_name: String, tool_args: HashMap<String, serde_json::Value>,
-                   id: Option<String>, output: String, latency_ms: u64) -> Self {
-        Self { tool_name, tool_args, id, output: format!("SUCCESS: {}", output),
-               success: true, latency_ms }
+    pub fn success(
+        tool_name: String,
+        tool_args: HashMap<String, serde_json::Value>,
+        id: Option<String>,
+        output: String,
+        latency_ms: u64,
+    ) -> Self {
+        Self {
+            tool_name,
+            tool_args,
+            id,
+            output: format!("SUCCESS: {}", output),
+            success: true,
+            latency_ms,
+        }
     }
 
-    pub fn failure(tool_name: String, tool_args: HashMap<String, serde_json::Value>,
-                   id: Option<String>, error: String, latency_ms: u64) -> Self {
-        Self { tool_name, tool_args, id, output: format!("ERROR: {}", error),
-               success: false, latency_ms }
+    pub fn failure(
+        tool_name: String,
+        tool_args: HashMap<String, serde_json::Value>,
+        id: Option<String>,
+        error: String,
+        latency_ms: u64,
+    ) -> Self {
+        Self {
+            tool_name,
+            tool_args,
+            id,
+            output: format!("ERROR: {}", error),
+            success: false,
+            latency_ms,
+        }
     }
 }
 
@@ -81,16 +121,16 @@ impl std::fmt::Display for State {
 pub struct ToolCall {
     pub name: String,
     pub args: HashMap<String, serde_json::Value>,
-    pub id:   Option<String>,
+    pub id: Option<String>,
 }
 
 /// A completed tool invocation stored in history.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
-    pub step:        usize,
-    pub tool:        ToolCall,
+    pub step: usize,
+    pub tool: ToolCall,
     pub observation: String,
-    pub success:     bool,
+    pub success: bool,
 }
 
 /// What the LLM can return. Always one of these two variants.
@@ -98,20 +138,25 @@ pub struct HistoryEntry {
 pub enum LlmResponse {
     /// LLM wants to invoke a tool
     ToolCall {
-        tool:       ToolCall,
-        confidence: f64,      // 0.0 - 1.0, estimated from response metadata
-        usage:      Option<crate::budget::TokenUsage>,
+        tool: ToolCall,
+        confidence: f64, // 0.0 - 1.0, estimated from response metadata
+        usage: Option<crate::budget::TokenUsage>,
     },
     /// LLM wants to invoke multiple tools in parallel
     ParallelToolCalls {
-        tools:      Vec<ToolCall>,
+        tools: Vec<ToolCall>,
         confidence: f64,
-        usage:      Option<crate::budget::TokenUsage>,
+        usage: Option<crate::budget::TokenUsage>,
     },
     /// LLM produced a final answer — task is complete
     FinalAnswer {
         content: String,
-        usage:   Option<crate::budget::TokenUsage>,
+        usage: Option<crate::budget::TokenUsage>,
+    },
+    /// LLM produced structured output conforming to a schema
+    Structured {
+        data: serde_json::Value,
+        usage: Option<crate::budget::TokenUsage>,
     },
 }
 
@@ -148,8 +193,8 @@ pub enum AgentOutput {
     },
     /// A tool call has completed
     ToolCallFinished {
-        name:    String,
-        result:  String,
+        name: String,
+        result: String,
         success: bool,
     },
     /// A generic action or progress message
@@ -201,19 +246,52 @@ pub struct AgentConfig {
     /// ```
     /// Leave empty to fall back on the LLM caller's own default.
     pub models: HashMap<String, String>,
+
+    /// Optional structured output schema.
+    /// When set, the LLM is instructed to return JSON conforming to this schema.
+    pub output_schema: Option<OutputSchema>,
+}
+
+/// Schema definition for structured LLM output.
+/// The LLM will be instructed to return JSON conforming to this schema.
+///
+/// # Example
+/// ```no_run
+/// # use agentsm::types::OutputSchema;
+/// let schema = OutputSchema {
+///     name: "person".to_string(),
+///     description: Some("Extract person information".to_string()),
+///     schema: serde_json::json!({
+///         "type": "object",
+///         "properties": {
+///             "name": { "type": "string" },
+///             "age": { "type": "integer" }
+///         },
+///         "required": ["name", "age"]
+///     }),
+/// };
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputSchema {
+    /// A name for this schema (used in API calls)
+    pub name: String,
+    /// Optional description of what the schema represents
+    pub description: Option<String>,
+    /// The JSON Schema object defining the expected structure
+    pub schema: serde_json::Value,
 }
 
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            max_steps:             15,
-            max_retries:           3,
-            confidence_threshold:  0.4,
+            max_steps: 15,
+            max_retries: 3,
+            confidence_threshold: 0.4,
             reflect_every_n_steps: 5,
-            min_answer_length:     5,
-            parallel_tools:        true,
-            models:                HashMap::new(), // no hardcoded defaults
+            min_answer_length: 5,
+            parallel_tools: true,
+            models: HashMap::new(), // no hardcoded defaults
+            output_schema: None,
         }
     }
 }
-

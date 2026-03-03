@@ -1,26 +1,29 @@
-pub mod types;
-pub mod memory;
-pub mod events;
-pub mod transitions;
-pub mod tools;
-pub mod engine;
-pub mod trace;
-pub mod error;
+pub mod budget;
 pub mod builder;
-pub mod states;
+pub mod checkpoint;
+pub mod engine;
+pub mod error;
+pub mod events;
+pub mod human;
 pub mod llm;
 pub mod mcp;
-pub mod human;
-pub mod checkpoint;
-pub mod budget;
+pub mod memory;
+pub mod states;
+pub mod tools;
+pub mod trace;
+pub mod transitions;
+pub mod types;
 
 // Convenience re-exports at crate root
 pub use builder::AgentBuilder;
 pub use engine::AgentEngine;
-pub use memory::AgentMemory;
-pub use types::{State, LlmResponse, ToolCall, HistoryEntry, AgentConfig, AgentOutput, LlmStreamChunk};
-pub use events::Event;
-pub use tools::{ToolRegistry, ToolFn, Tool};
-pub use llm::{LlmCaller, AsyncLlmCaller, LlmCallerExt, RetryingLlmCaller};
-pub use trace::{TraceEntry, Trace};
 pub use error::AgentError;
+pub use events::Event;
+pub use llm::{AsyncLlmCaller, LlmCaller, LlmCallerExt, RetryingLlmCaller};
+pub use memory::AgentMemory;
+pub use tools::{Tool, ToolFn, ToolRegistry};
+pub use trace::{Trace, TraceEntry};
+pub use types::{
+    AgentConfig, AgentOutput, HistoryEntry, LlmResponse, LlmStreamChunk, OutputSchema, State,
+    ToolCall,
+};
