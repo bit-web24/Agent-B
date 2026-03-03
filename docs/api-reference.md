@@ -59,6 +59,18 @@ impl AgentBuilder {
     // ── MCP ───────────────────────────────────────────────────────────────
     pub fn mcp_server(self, command: &str, args: &[String]) -> Self
 
+    // ── Hooks ─────────────────────────────────────────────────────────────
+    pub fn on_hook(self, hook: Arc<dyn AgentHooks>) -> Self
+
+    // ── Prompt Templates ──────────────────────────────────────────────────
+    pub fn prompt_template(self, template: PromptTemplate) -> Self
+
+    // ── LLM Caching ───────────────────────────────────────────────────────
+    pub fn cache(self, cache: Arc<dyn LlmCache>) -> Self
+
+    // ── Memory Strategy ───────────────────────────────────────────────────
+    pub fn memory_strategy(self, strategy: Arc<dyn MemoryStrategy>) -> Self
+
     // ── Custom State Graphs ───────────────────────────────────────────────
     pub fn state(self, name: &'static str, handler: Arc<dyn AgentState>) -> Self
     pub fn transition(self, from: &str, event: &str, to: &str) -> Self
@@ -317,5 +329,13 @@ use agentsm::{
     ToolRegistry, Tool,
     AgentOutput, LlmStreamChunk, OutputSchema,
     TokenBudget, TokenUsage,
+    // Hooks
+    AgentHooks, CompositeHooks, PrintHooks, NoopHooks,
+    // Prompt Templates
+    PromptTemplate, PromptError,
+    // LLM Caching
+    LlmCache, InMemoryCache, NoopCache, CacheStats,
+    // Memory Strategies
+    MemoryStrategy, FullMemory, SlidingWindowMemory, SummaryMemory,
 };
 ```

@@ -60,6 +60,7 @@ futures = "0.3"
 async-trait = "0.1"
 rusqlite = { version = "0.38.0", features = ["bundled"] }
 uuid = { version = "1.21.0", features = ["v4"] }
+sha2 = "0.10.9"
 
 [dev-dependencies]
 tokio   = { version = "1",    features = ["full", "test-util"] }

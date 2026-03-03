@@ -191,7 +191,62 @@ impl AgentState for PlanningState {
         // 3. Resolve model
         let model = self.resolve_model(memory).to_string();
 
+        // 3b. Check LLM cache
+        let messages_for_key = memory.build_messages();
+        let cache_key = crate::cache::cache_key(&messages_for_key, &model);
+        if let Some(cached_resp) = memory.cache.get(&cache_key) {
+            memory.log(
+                "Planning",
+                "CACHE_HIT",
+                &format!("key={}", &cache_key[..12]),
+            );
+            // Hook: on_llm_end (cached)
+            memory.hooks.on_llm_end(&model, &cached_resp, memory);
+
+            // Extract usage (if any) and dispatch
+            let (LlmResponse::ToolCall { usage, .. }
+            | LlmResponse::ParallelToolCalls { usage, .. }
+            | LlmResponse::FinalAnswer { usage, .. }
+            | LlmResponse::Structured { usage, .. }) = &cached_resp;
+            if let Some(u) = usage {
+                memory.total_usage.add(*u);
+            }
+            return match cached_resp {
+                LlmResponse::ToolCall {
+                    tool, confidence, ..
+                } => self.handle_tool_call(memory, tool, confidence),
+                LlmResponse::ParallelToolCalls {
+                    tools, confidence, ..
+                } => self.handle_parallel_tool_calls(memory, tools, confidence),
+                LlmResponse::FinalAnswer { content, .. } => {
+                    self.handle_final_answer(memory, content, output_tx)
+                }
+                LlmResponse::Structured { data, .. } => {
+                    let json_str =
+                        serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string());
+                    memory.final_answer = Some(json_str.clone());
+                    memory.log(
+                        "Planning",
+                        "LLM_STRUCTURED_OUTPUT",
+                        &json_str.chars().take(100).collect::<String>(),
+                    );
+                    if let Some(tx) = output_tx {
+                        let _ = tx.send(AgentOutput::FinalAnswer(json_str));
+                    }
+                    Event::llm_final_answer()
+                }
+            };
+        }
+        memory.log(
+            "Planning",
+            "CACHE_MISS",
+            &format!("key={}", &cache_key[..12]),
+        );
+
         // 4. Call LLM (streaming)
+        // Hook: on_llm_start
+        memory.hooks.on_llm_start(&model, memory);
+
         let (final_resp, stream_err) = {
             let mut stream = llm.call_stream_async(memory, tools, &model, output_tx);
             let mut final_resp = None;
@@ -239,6 +294,8 @@ impl AgentState for PlanningState {
                         err, sync_err
                     ));
                     memory.log("Planning", "LLM_ERROR", &sync_err);
+                    // Hook: on_llm_error
+                    memory.hooks.on_llm_error(&model, &sync_err, memory);
                     return Event::fatal_error();
                 }
             }
@@ -263,6 +320,8 @@ impl AgentState for PlanningState {
                                 stream_end_err, sync_err
                             ));
                             memory.log("Planning", "LLM_ERROR", &sync_err);
+                            // Hook: on_llm_error
+                            memory.hooks.on_llm_error(&model, &sync_err, memory);
                             return Event::fatal_error();
                         }
                     }
@@ -277,6 +336,12 @@ impl AgentState for PlanningState {
         if let Some(u) = usage {
             memory.total_usage.add(*u);
         }
+
+        // Hook: on_llm_end
+        memory.hooks.on_llm_end(&model, &resp, memory);
+
+        // Store in cache
+        memory.cache.put(cache_key, resp.clone());
 
         match resp {
             LlmResponse::ToolCall {

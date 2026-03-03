@@ -265,3 +265,149 @@ engine.trace().to_json();              // JSON string
 engine.trace().for_state("Planning");  // filter by state
 engine.trace().len();                  // total entry count
 ```
+
+---
+
+## Callbacks/Hooks
+
+Hooks provide real-time observability during agent execution. Implement the `AgentHooks` trait to receive notifications at key lifecycle points.
+
+### The `AgentHooks` Trait
+
+```rust
+pub trait AgentHooks: Send + Sync {
+    fn on_agent_start(&self, task: &str, memory: &AgentMemory) {}
+    fn on_agent_end(&self, result: Result<&str, &AgentError>, memory: &AgentMemory) {}
+    fn on_state_enter(&self, state: &str, memory: &AgentMemory) {}
+    fn on_state_exit(&self, state: &str, event: &str, memory: &AgentMemory) {}
+    fn on_llm_start(&self, model: &str, memory: &AgentMemory) {}
+    fn on_llm_end(&self, model: &str, response: &LlmResponse, memory: &AgentMemory) {}
+    fn on_llm_error(&self, model: &str, error: &str, memory: &AgentMemory) {}
+    fn on_tool_start(&self, name: &str, args: &HashMap<String, Value>, memory: &AgentMemory) {}
+    fn on_tool_end(&self, name: &str, result: &str, success: bool, memory: &AgentMemory) {}
+}
+```
+
+### Built-in Implementations
+
+| Type | Purpose |
+|---|---|
+| `NoopHooks` | Zero-cost default — does nothing |
+| `PrintHooks` | ANSI-colored output to stdout for development |
+| `CompositeHooks` | Chains multiple hooks with panic isolation |
+
+### Usage
+
+```rust
+let engine = AgentBuilder::new("task")
+    .on_hook(Arc::new(PrintHooks))
+    .on_hook(Arc::new(my_custom_hook))
+    .build()?;
+```
+
+---
+
+## Prompt Templates
+
+Templates allow variable substitution in system prompts using `{variable}` syntax.
+
+```rust
+let tpl = PromptTemplate::new("You are a {role}. Focus on {topic}.")
+    .var("role", "Rust expert")
+    .default_var("topic", "performance");
+
+assert_eq!(tpl.render().unwrap(), "You are a Rust expert. Focus on performance.");
+```
+
+### Features
+
+- **`{name}`** — replaced by bound value
+- **`{{` / `}}`** — escaped literal braces
+- **Defaults** — `.default_var()` used when no explicit value is bound
+- **Runtime overrides** — `render_with(&extra)` for highest-priority values
+- **Strict mode** — `.strict(true)` makes unresolved variables an error
+- **Lenient mode** (default) — unresolved variables kept as `{name}` in output
+
+### Builder Integration
+
+```rust
+let engine = AgentBuilder::new("task")
+    .prompt_template(
+        PromptTemplate::new("You are a {role}. Focus on {topic}.")
+            .var("role", "security auditor")
+            .default_var("topic", "web security")
+    )
+    .build()?;
+```
+
+---
+
+## LLM Response Caching
+
+The cache avoids duplicate LLM API calls by storing responses keyed by SHA-256 hash of the messages + model string.
+
+### How It Works
+
+1. Before each LLM call, `PlanningState` computes `cache_key(messages, model)`.
+2. On **cache hit**, the response is returned immediately — no API call.
+3. On **cache miss**, the LLM is called and the response is stored.
+
+### Built-in Implementations
+
+| Type | Purpose |
+|---|---|
+| `NoopCache` | Caching disabled (default) |
+| `InMemoryCache` | Thread-safe in-memory cache with TTL expiration and LRU eviction |
+
+### Usage
+
+```rust
+use std::time::Duration;
+
+let cache = Arc::new(InMemoryCache::new(
+    100,                        // max entries
+    Duration::from_secs(300),   // TTL: 5 minutes
+));
+
+let engine = AgentBuilder::new("task")
+    .cache(cache.clone())
+    .build()?;
+
+// After run, check stats:
+let stats = cache.stats();
+println!("Hits: {}, Misses: {}, Rate: {:.1}%", stats.hits, stats.misses, stats.hit_rate() * 100.0);
+```
+
+---
+
+## Conversation Memory Strategies
+
+Memory strategies control how conversation history is prepared before being sent to the LLM, helping manage context window limits.
+
+### Built-in Strategies
+
+| Strategy | Behaviour |
+|---|---|
+| `FullMemory` | Pass complete history unchanged (default) |
+| `SlidingWindowMemory` | Keep system prompt + last N messages |
+| `SummaryMemory` | Keep system prompt + rolling summary + last N messages |
+
+### Usage
+
+```rust
+// Sliding window: keep last 10 messages
+let engine = AgentBuilder::new("task")
+    .memory_strategy(Arc::new(SlidingWindowMemory::new(10)))
+    .build()?;
+
+// Summary memory: rolling summary + last 4 messages
+let strategy = Arc::new(SummaryMemory::new(4));
+strategy.set_summary("User asked about Rust. We discussed ownership.");
+
+let engine = AgentBuilder::new("task")
+    .memory_strategy(strategy)
+    .build()?;
+```
+
+The strategy is applied at the end of `build_messages()`, transforming the full message list before it reaches the LLM.
+

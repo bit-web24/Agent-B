@@ -1,8 +1,8 @@
-use thiserror::Error;
-use crate::types::State;
 use crate::events::Event;
+use crate::types::State;
+use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum AgentError {
     #[error("Agent failed: {0}")]
     AgentFailed(String),

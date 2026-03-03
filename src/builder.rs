@@ -3,6 +3,7 @@ use crate::checkpoint::CheckpointStore;
 use crate::engine::AgentEngine;
 use crate::error::AgentError;
 use crate::events::Event;
+use crate::hooks::{AgentHooks, CompositeHooks, NoopHooks};
 use crate::llm::{AnthropicCaller, AsyncLlmCaller, OpenAiCaller, RetryingLlmCaller};
 use crate::mcp::{bridge_mcp_tool, McpClient};
 use crate::memory::AgentMemory;
@@ -29,6 +30,7 @@ pub struct AgentBuilder {
     checkpoint_store: Option<Arc<dyn CheckpointStore>>,
     session_id: String,
     initial_state: Option<State>,
+    hooks: Vec<Arc<dyn AgentHooks>>,
 }
 
 impl AgentBuilder {
@@ -50,6 +52,7 @@ impl AgentBuilder {
             checkpoint_store: None,
             session_id: uuid::Uuid::new_v4().to_string(),
             initial_state: None,
+            hooks: Vec::new(),
         }
     }
 
@@ -68,7 +71,29 @@ impl AgentBuilder {
         self
     }
 
-    // ── LLM provider setters ──────────────────────────────────────────────────
+    /// Set a reusable system prompt template with `{variable}` substitution.
+    /// When set, this is rendered instead of the raw `system_prompt`.
+    pub fn prompt_template(mut self, template: crate::prompt::PromptTemplate) -> Self {
+        self.memory.prompt_template = Some(template);
+        self
+    }
+
+    /// Enable LLM response caching. Duplicate messages with the same content
+    /// and model will return cached results instead of calling the LLM.
+    pub fn cache(mut self, cache: std::sync::Arc<dyn crate::cache::LlmCache>) -> Self {
+        self.memory.cache = cache;
+        self
+    }
+
+    /// Set a conversation memory strategy (e.g. sliding window, summary).
+    /// Defaults to `FullMemory` (pass-through).
+    pub fn memory_strategy(
+        mut self,
+        strategy: std::sync::Arc<dyn crate::memory_strategy::MemoryStrategy>,
+    ) -> Self {
+        self.memory.memory_strategy = strategy;
+        self
+    }
 
     /// Set the LLM caller explicitly.
     pub fn llm(mut self, llm: Arc<dyn AsyncLlmCaller>) -> Self {
@@ -364,6 +389,15 @@ impl AgentBuilder {
         self
     }
 
+    // ── Hooks ────────────────────────────────────────────────────────────────────
+
+    /// Register a callback hook for real-time agent observability.
+    /// Multiple hooks can be added; they are called in registration order.
+    pub fn on_hook(mut self, hook: Arc<dyn AgentHooks>) -> Self {
+        self.hooks.push(hook);
+        self
+    }
+
     // ── Sub-Agents as Tools ──────────────────────────────────────────────
 
     /// Converts this builder into a tool that can be used by another agent.
@@ -472,6 +506,19 @@ impl AgentBuilder {
             transitions.insert((from, event), to);
         }
 
+        // Build the hooks
+        let hooks: Arc<dyn AgentHooks> = if self.hooks.is_empty() {
+            Arc::new(NoopHooks)
+        } else if self.hooks.len() == 1 {
+            self.hooks.remove(0)
+        } else {
+            let mut composite = CompositeHooks::new();
+            for h in self.hooks {
+                composite = composite.add(h);
+            }
+            Arc::new(composite)
+        };
+
         let mut engine = AgentEngine::new(
             self.memory,
             Arc::new(self.tools),
@@ -481,6 +528,7 @@ impl AgentBuilder {
             self.terminal_states,
             self.session_id,
             self.checkpoint_store,
+            hooks,
         );
 
         if let Some(state) = self.initial_state {
@@ -533,6 +581,19 @@ impl AgentBuilder {
             transitions.insert((from, event), to);
         }
 
+        // Build the hooks
+        let hooks: Arc<dyn AgentHooks> = if self.hooks.is_empty() {
+            Arc::new(NoopHooks)
+        } else if self.hooks.len() == 1 {
+            self.hooks.remove(0)
+        } else {
+            let mut composite = CompositeHooks::new();
+            for h in self.hooks {
+                composite = composite.add(h);
+            }
+            Arc::new(composite)
+        };
+
         let mut engine = AgentEngine::new(
             self.memory,
             Arc::new(self.tools),
@@ -542,6 +603,7 @@ impl AgentBuilder {
             self.terminal_states,
             self.session_id,
             self.checkpoint_store,
+            hooks,
         );
 
         if let Some(state) = self.initial_state {
