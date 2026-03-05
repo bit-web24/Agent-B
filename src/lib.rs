@@ -6,6 +6,7 @@ pub mod contracts;
 pub mod engine;
 pub mod error;
 pub mod events;
+pub mod fork;
 pub mod healing;
 pub mod hooks;
 pub mod human;
@@ -33,6 +34,10 @@ pub use contracts::{
 pub use engine::AgentEngine;
 pub use error::AgentError;
 pub use events::Event;
+pub use fork::{
+    fork_memory, select_best, ConfidenceScorer, ForkConfig, ForkResult, ForkScorer, MergeStrategy,
+    StepEfficiencyScorer, ToolSuccessRateScorer,
+};
 pub use healing::{apply_healing, HealingAction, HealingOutcome, HealingPolicy, HealingTrigger};
 pub use hooks::{AgentHooks, CompositeHooks, NoopHooks, PrintHooks};
 pub use introspection::{Anomaly, IntrospectionConfig, IntrospectionEngine};

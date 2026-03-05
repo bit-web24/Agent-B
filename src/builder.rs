@@ -37,6 +37,7 @@ pub struct AgentBuilder {
     contracts: ContractSet,
     introspection: Option<IntrospectionEngine>,
     healing_policy: Option<HealingPolicy>,
+    fork_config: Option<crate::fork::ForkConfig>,
 }
 
 impl AgentBuilder {
@@ -62,6 +63,7 @@ impl AgentBuilder {
             contracts: ContractSet::new(),
             introspection: None,
             healing_policy: None,
+            fork_config: None,
         }
     }
 
@@ -148,6 +150,12 @@ impl AgentBuilder {
     /// Set the planning mode (implicit or explicit plan-and-execute).
     pub fn planning_mode(mut self, mode: crate::plan::PlanningMode) -> Self {
         self.memory.planning_mode = mode;
+        self
+    }
+
+    /// Enable speculative forking with multiple parallel branches.
+    pub fn fork_strategy(mut self, config: crate::fork::ForkConfig) -> Self {
+        self.fork_config = Some(config);
         self
     }
 
@@ -588,6 +596,7 @@ impl AgentBuilder {
             self.contracts,
             self.introspection,
             self.healing_policy,
+            self.fork_config,
         );
 
         if let Some(state) = self.initial_state {
@@ -666,6 +675,7 @@ impl AgentBuilder {
             self.contracts,
             self.introspection,
             self.healing_policy,
+            self.fork_config,
         );
 
         if let Some(state) = self.initial_state {

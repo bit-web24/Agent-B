@@ -29,6 +29,7 @@ pub struct AgentEngine {
     pub contracts: ContractSet,
     pub introspection: Option<crate::introspection::IntrospectionEngine>,
     pub healing_policy: Option<crate::healing::HealingPolicy>,
+    pub fork_config: Option<crate::fork::ForkConfig>,
 }
 
 impl AgentEngine {
@@ -46,6 +47,7 @@ impl AgentEngine {
         contracts: ContractSet,
         introspection: Option<crate::introspection::IntrospectionEngine>,
         healing_policy: Option<crate::healing::HealingPolicy>,
+        fork_config: Option<crate::fork::ForkConfig>,
     ) -> Self {
         Self {
             memory,
@@ -61,6 +63,7 @@ impl AgentEngine {
             contracts,
             introspection,
             healing_policy,
+            fork_config,
         }
     }
 
