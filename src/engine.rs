@@ -305,7 +305,26 @@ impl AgentEngine {
         tracing::info!(from = %self.state, event = %event, to = %next_state, "transition");
         println!("  ══ {} --{}-->{} ══", self.state, event, next_state);
 
+        // Plan-and-Execute: advance plan step on Observing→Planning transitions
+        let from_state = self.state.clone();
         self.state = next_state;
+
+        if from_state.as_str() == "Observing" && self.state.as_str() == "Planning" {
+            if let Some(ref mut plan) = self.memory.current_plan {
+                if !plan.is_complete() {
+                    // Check if last tool call succeeded or failed
+                    if let Some(last) = self.memory.history.last() {
+                        if last.success {
+                            let obs = last.observation.chars().take(200).collect::<String>();
+                            plan.complete_current(obs);
+                        } else {
+                            let obs = last.observation.chars().take(200).collect::<String>();
+                            plan.fail_current(obs);
+                        }
+                    }
+                }
+            }
+        }
 
         // Save checkpoint
         if let Some(store) = &self.checkpoint_store {
