@@ -197,6 +197,17 @@ impl AgentState for PlanningState {
             &format!("step={}/{}", memory.step, memory.config.max_steps),
         );
 
+        // 2b. Plan-and-Execute: inject plan context
+        if let Some(ref mut plan) = memory.current_plan {
+            if !plan.is_complete() {
+                plan.start_current();
+                let ctx = plan.to_context_string();
+                // Add plan context as a note so the LLM can see it
+                memory.anomaly_notes.retain(|n| !n.starts_with("PLAN ("));
+                memory.anomaly_notes.push(ctx);
+            }
+        }
+
         // 3. Resolve model
         let model = self.resolve_model(memory).to_string();
 

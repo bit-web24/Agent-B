@@ -145,6 +145,12 @@ impl AgentBuilder {
         self
     }
 
+    /// Set the planning mode (implicit or explicit plan-and-execute).
+    pub fn planning_mode(mut self, mode: crate::plan::PlanningMode) -> Self {
+        self.memory.planning_mode = mode;
+        self
+    }
+
     /// Set the LLM caller explicitly.
     pub fn llm(mut self, llm: Arc<dyn AsyncLlmCaller>) -> Self {
         self.llm = Some(llm);

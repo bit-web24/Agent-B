@@ -115,6 +115,13 @@ pub struct AgentMemory {
     // ── Introspection ────────────────────────────────────
     /// Notes from anomaly detection, injected into LLM context
     pub anomaly_notes: Vec<String>,
+
+    // ── Plan-and-Execute ─────────────────────────────────
+    /// Structured execution plan (if using explicit planning mode)
+    pub current_plan: Option<crate::plan::AgentPlan>,
+    /// Planning mode (implicit or explicit)
+    #[serde(skip, default)]
+    pub planning_mode: crate::plan::PlanningMode,
 }
 
 fn default_hooks() -> Arc<dyn AgentHooks> {
@@ -170,6 +177,8 @@ impl AgentMemory {
             hooks: Arc::new(NoopHooks),
             routing_policy: None,
             anomaly_notes: Vec::new(),
+            current_plan: None,
+            planning_mode: crate::plan::PlanningMode::Implicit,
         }
     }
 

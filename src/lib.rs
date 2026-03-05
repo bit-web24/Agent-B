@@ -14,6 +14,7 @@ pub mod llm;
 pub mod mcp;
 pub mod memory;
 pub mod memory_strategy;
+pub mod plan;
 pub mod prompt;
 pub mod routing;
 pub mod states;
@@ -38,6 +39,7 @@ pub use introspection::{Anomaly, IntrospectionConfig, IntrospectionEngine};
 pub use llm::{AsyncLlmCaller, LlmCaller, LlmCallerExt, RetryingLlmCaller};
 pub use memory::AgentMemory;
 pub use memory_strategy::{FullMemory, MemoryStrategy, SlidingWindowMemory, SummaryMemory};
+pub use plan::{AgentPlan, PlanRevisionTrigger, PlanStep, PlanningMode, StepStatus};
 pub use prompt::{PromptError, PromptTemplate};
 pub use routing::{
     BudgetPctAbove, ConfidenceBelow, RoutingCondition, RoutingPolicy, RoutingRule, StepAbove,
