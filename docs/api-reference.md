@@ -61,6 +61,20 @@ impl AgentBuilder {
 
     // ── Hooks ─────────────────────────────────────────────────────────────
     pub fn on_hook(self, hook: Arc<dyn AgentHooks>) -> Self
+    
+    // ── Advanced Features ──────────────────────────────────────────────────
+    pub fn fork_strategy(self, config: fork::ForkConfig) -> Self
+    pub fn routing_policy(self, policy: routing::RoutingPolicy) -> Self
+    pub fn self_healing(self, policy: healing::HealingPolicy) -> Self
+    pub fn introspection(self, engine: introspection::IntrospectionEngine) -> Self
+    pub fn replay_recording(self, mode: replay::ReplayRecording) -> Self
+    pub fn planning_mode(self, mode: plan::PlanningMode) -> Self
+    pub fn tool_composition(self, config: tool_synthesis::CompositionConfig) -> Self
+    
+    // ── Execution Contracts ────────────────────────────────────────────────
+    pub fn guard(self, name: &str, condition: impl Fn(&AgentMemory) -> bool) -> Self
+    pub fn invariant(self, name: &str, condition: impl Fn(&AgentMemory) -> bool) -> Self
+    pub fn postcondition(self, name: &str, condition: impl Fn(&AgentMemory) -> bool) -> Self
 
     // ── Prompt Templates ──────────────────────────────────────────────────
     pub fn prompt_template(self, template: PromptTemplate) -> Self

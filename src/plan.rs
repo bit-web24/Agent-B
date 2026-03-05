@@ -229,8 +229,10 @@ pub enum PlanRevisionTrigger {
 
 /// How the agent plans its execution.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub enum PlanningMode {
     /// Default: implicit plan via LLM context (existing behavior).
+    #[default]
     Implicit,
     /// Explicit plan: agent generates a structured plan first.
     Explicit {
@@ -239,11 +241,6 @@ pub enum PlanningMode {
     },
 }
 
-impl Default for PlanningMode {
-    fn default() -> Self {
-        PlanningMode::Implicit
-    }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests

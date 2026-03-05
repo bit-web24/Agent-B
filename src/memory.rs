@@ -312,8 +312,8 @@ impl AgentMemory {
         }
 
         // Apply memory strategy to trim/transform messages
-        let messages = self.memory_strategy.apply(messages);
+        
 
-        messages
+        self.memory_strategy.apply(messages)
     }
 }

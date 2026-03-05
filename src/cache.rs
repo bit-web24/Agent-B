@@ -5,7 +5,7 @@ use crate::types::LlmResponse;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 // ─────────────────────────────────────────────────────────────────────────────

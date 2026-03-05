@@ -367,8 +367,10 @@ pub enum DiffKind {
 
 /// Controls what the recorder captures.
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum ReplayRecording {
     /// No recording.
+    #[default]
     Off,
     /// Record all LLM + tool I/O.
     Full,
@@ -376,11 +378,6 @@ pub enum ReplayRecording {
     TransitionsOnly,
 }
 
-impl Default for ReplayRecording {
-    fn default() -> Self {
-        ReplayRecording::Off
-    }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests

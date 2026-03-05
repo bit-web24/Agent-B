@@ -361,7 +361,7 @@ impl AgentEngine {
 
         stream::unfold(
             (self, rx, tx, false),
-            |(engine, mut rx, tx, mut done)| async move {
+            |(engine, mut rx, tx, done)| async move {
                 if done {
                     return None;
                 }
@@ -382,7 +382,6 @@ impl AgentEngine {
                 // 3. Execute one step of the engine.
                 // This will likely send many events (StateStarted, tokens, ToolCallStarted, etc.) to tx.
                 if let Err(e) = engine.step(&tx).await {
-                    done = true;
                     return Some((AgentOutput::Error(e.to_string()), (engine, rx, tx, true)));
                 }
 

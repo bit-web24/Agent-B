@@ -47,7 +47,7 @@ impl Trace {
 
     /// Prints a human-readable trace table to stdout
     pub fn print(&self) {
-        println!("\n{:<6} {:<14} {:<28} {}", "step", "state", "event", "data");
+        println!("\n{:<6} {:<14} {:<28} data", "step", "state", "event");
         println!("{}", "─".repeat(80));
         for e in &self.entries {
             println!("{:<6} {:<14} {:<28} {}", e.step, e.state, e.event, &e.data.chars().take(30).collect::<String>());

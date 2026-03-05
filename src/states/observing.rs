@@ -26,21 +26,18 @@ impl AgentState for ObservingState {
         let tool_call = memory.current_tool_call.take();
         let observation = memory.last_observation.take();
 
-        match (tool_call, observation) {
-            (Some(tool), Some(obs)) => {
-                let success = obs.starts_with("SUCCESS:");
-                let entry = HistoryEntry {
-                    step: memory.step,
-                    tool,
-                    observation: obs.clone(),
-                    success,
-                };
-                memory.history.push(entry);
-                memory.log("Observing", "HISTORY_COMMIT", &format!(
-                    "step={} success={} len={}", memory.step, success, memory.history.len()
-                ));
-            }
-            _ => {}
+        if let (Some(tool), Some(obs)) = (tool_call, observation) {
+            let success = obs.starts_with("SUCCESS:");
+            let entry = HistoryEntry {
+                step: memory.step,
+                tool,
+                observation: obs.clone(),
+                success,
+            };
+            memory.history.push(entry);
+            memory.log("Observing", "HISTORY_COMMIT", &format!(
+                "step={} success={} len={}", memory.step, success, memory.history.len()
+            ));
         }
 
         // Commit parallel results if any
@@ -64,7 +61,7 @@ impl AgentState for ObservingState {
 
         // Check if reflection is needed
         let reflect_interval = memory.config.reflect_every_n_steps;
-        if reflect_interval > 0 && memory.step % reflect_interval == 0 {
+        if reflect_interval > 0 && memory.step.is_multiple_of(reflect_interval) {
             memory.log("Observing", "NEEDS_REFLECTION", &format!(
                 "step={} interval={}", memory.step, reflect_interval
             ));

@@ -34,6 +34,12 @@ pub struct MemoryCheckpointStore {
     checkpoints: std::sync::Mutex<HashMap<String, Vec<AgentCheckpoint>>>, // session_id -> checkpoints
 }
 
+impl Default for MemoryCheckpointStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryCheckpointStore {
     pub fn new() -> Self {
         Self {

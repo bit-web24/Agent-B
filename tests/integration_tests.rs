@@ -6,10 +6,7 @@
 use agentsm::llm::AsyncLlmCaller;
 use agentsm::llm::MockLlmCaller;
 use agentsm::memory::AgentMemory;
-use agentsm::states::{
-    ActingState, AgentState, DoneState, ErrorState, IdleState, ObservingState, PlanningState,
-    ReflectingState,
-};
+use agentsm::states::{ActingState, AgentState, IdleState, ObservingState, PlanningState};
 use agentsm::transitions::build_transition_table;
 use agentsm::{
     AgentBuilder, AgentEngine, AgentError, AgentOutput, Event, LlmResponse, LlmStreamChunk, State,
@@ -67,14 +64,6 @@ fn make_engine_with_mock(mock: MockLlmCaller) -> AgentEngine {
         )
         .build()
         .expect("builder should succeed")
-}
-
-/// Build a minimal engine with no tools.
-fn make_bare_engine(mock: MockLlmCaller) -> AgentEngine {
-    AgentBuilder::new("bare test task")
-        .llm(Arc::new(mock))
-        .build()
-        .expect("bare builder should succeed")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -638,7 +627,6 @@ async fn test_add_tool_with_builder() {
 #[tokio::test]
 async fn test_retry_recovers_after_transient_error() {
     use agentsm::llm::LlmCaller;
-    use agentsm::llm::MockLlmCaller;
     use agentsm::RetryingLlmCaller;
 
     // Create a custom mock that fails twice, succeeds on third try
@@ -996,8 +984,6 @@ async fn test_custom_state_graph() {
 
 #[tokio::test]
 async fn test_custom_terminal_state() {
-    use agentsm::llm::LlmCaller;
-
     /// A custom state that is terminal — the engine should exit here.
     struct CustomDoneState;
 

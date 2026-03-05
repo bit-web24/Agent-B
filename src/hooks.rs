@@ -76,6 +76,12 @@ pub struct CompositeHooks {
     hooks: Vec<Arc<dyn AgentHooks>>,
 }
 
+impl Default for CompositeHooks {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CompositeHooks {
     pub fn new() -> Self {
         Self { hooks: Vec::new() }
@@ -133,7 +139,7 @@ impl AgentHooks for CompositeHooks {
     fn on_agent_end(&self, result: Result<&str, &AgentError>, memory: &AgentMemory) {
         // Clone into owned values so we can safely pass across panic boundaries.
         let ok_val: Option<String> = result.ok().map(|s| s.to_string());
-        let err_val: Option<AgentError> = result.err().map(|e| e.clone());
+        let err_val: Option<AgentError> = result.err().cloned();
         self.for_each(|h| {
             let r: Result<&str, &AgentError> = match (&ok_val, &err_val) {
                 (Some(s), _) => Ok(s.as_str()),

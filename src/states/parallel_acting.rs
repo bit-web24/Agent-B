@@ -48,7 +48,8 @@ impl AgentState for ParallelActingState {
                 let result = tools_clone.execute(&tool_call.name, &tool_call.args);
                 let latency = start.elapsed().as_millis() as u64;
 
-                let tool_result = match result {
+                
+                match result {
                     Ok(res) => {
                         if let Some(ref tx) = tx_clone {
                             let _ = tx.send(AgentOutput::ToolCallFinished {
@@ -69,8 +70,7 @@ impl AgentState for ParallelActingState {
                         }
                         ToolResult::failure(tool_call.name.clone(), tool_call.args.clone(), tool_call.id.clone(), err, latency)
                     }
-                };
-                tool_result
+                }
             }));
         }
 
@@ -78,13 +78,11 @@ impl AgentState for ParallelActingState {
         let mut tool_results = Vec::new();
         let mut success_count = 0;
 
-        for res in results {
-            if let Ok(tool_res) = res {
-                if tool_res.success {
-                    success_count += 1;
-                }
-                tool_results.push(tool_res);
+        for tool_res in results.into_iter().flatten() {
+            if tool_res.success {
+                success_count += 1;
             }
+            tool_results.push(tool_res);
         }
 
         memory.parallel_results = tool_results;

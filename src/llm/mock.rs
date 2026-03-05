@@ -1,5 +1,4 @@
 use std::sync::Mutex;
-use crate::llm::LlmCaller;
 use crate::memory::AgentMemory;
 use crate::tools::ToolRegistry;
 use crate::types::LlmResponse;

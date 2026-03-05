@@ -28,18 +28,15 @@ pub enum HumanDecision {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ApprovalPolicy {
     AlwaysAsk,
+    #[default]
     NeverAsk,
     AskAbove(RiskLevel),
     ToolBased(HashMap<String, RiskLevel>),
 }
 
-impl Default for ApprovalPolicy {
-    fn default() -> Self {
-        Self::NeverAsk
-    }
-}
 
 impl ApprovalPolicy {
     pub fn needs_approval(&self, tool_name: &str, _args: &HashMap<String, serde_json::Value>) -> bool {

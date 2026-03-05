@@ -1,6 +1,6 @@
 use crate::memory::AgentMemory;
 use crate::tools::ToolRegistry;
-use crate::types::{LlmResponse, LlmStreamChunk};
+use crate::types::LlmResponse;
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 

@@ -165,3 +165,145 @@ for entry in &engine.memory.history {
 
 engine.trace().print();
 ```
+
+---
+
+## 8 New Advanced Features
+
+### 1. Agent Forking (Speculative Execution)
+
+Run multiple parallel agent branches exploring different paths. The best result is chosen automatically:
+
+```rust
+use agentsm::fork::{ForkConfig, MergeStrategy, StepEfficiencyScorer};
+
+let config = ForkConfig::new(3) // 3 parallel branches
+    .max_depth(10) // 10 steps max per branch
+    .merge(MergeStrategy::MostConfident)
+    .scorer(std::sync::Arc::new(StepEfficiencyScorer));
+
+let engine = AgentBuilder::new("Complex task")
+    .openai("gpt-4o")
+    .fork_strategy(config)
+    .build()?;
+```
+
+### 2. Adaptive Model Routing
+
+Dynamically route requests to different models based on context, cost, or agent state:
+
+```rust
+use agentsm::routing::{RoutingPolicy, RoutingRule, condition};
+
+let mut policy = RoutingPolicy::new("gpt-3.5-turbo"); // Default
+// Route to GPT-4 for high confidence steps >= 5
+policy.add_rule(RoutingRule {
+    model: "gpt-4".into(),
+    condition: condition::step_count_greater_than(5),
+});
+
+let engine = AgentBuilder::new("task")
+    .openai("gpt-4o")
+    .routing_policy(policy)
+    .build()?;
+```
+
+### 3. Self-Healing Policies
+
+Automatically pause, reset, or dial down the temperature when the agent hits failure loops:
+
+```rust
+use agentsm::healing::{HealingPolicy, Trigger, Action};
+
+let mut healing = HealingPolicy::new();
+healing.add_rule(
+    Trigger::ToolFailureLoop { tool_name: "search".into(), max_failures: 3 },
+    Action::PauseForHuman { message: "Search failed 3 times".into() }
+);
+
+let engine = AgentBuilder::new("task")
+    .openai("gpt-4o")
+    .self_healing(healing)
+    .build()?;
+```
+
+### 4. Agent Introspection & Anomaly Detection
+
+Monitors the agent's behavior for infinite loops, repetitive outputs, or idle tool usage:
+
+```rust
+use agentsm::introspection::{IntrospectionEngine, LoopDetector};
+
+let mut insights = IntrospectionEngine::new();
+insights.add_detector(LoopDetector { max_repetitions: 3 });
+
+let engine = AgentBuilder::new("task")
+    .openai("gpt-4o")
+    .introspection(insights)
+    .build()?;
+```
+
+### 5. Deterministic Replay
+
+Record every action. Replay from checkpoints to debug or patch intermediate steps:
+
+```rust
+use agentsm::replay::ReplayRecording;
+
+let mut engine = AgentBuilder::new("task")
+    .openai("gpt-4o")
+    .replay_recording(ReplayRecording::Full)
+    .session_id("run-1")
+    .build()?;
+
+// Later: Load and patch a run
+let ndjson = engine.memory.replay_recorder.to_ndjson();
+```
+
+### 6. Execution Contracts & Invariants
+
+Enforce strict pre/post-conditions on state transitions. Perfect for safety-critical tasks:
+
+```rust
+let engine = AgentBuilder::new("task")
+    .openai("gpt-4o")
+    .invariant("Balance >= 0", |m| m.confidence_score >= 0.0) // Must always be true
+    .postcondition("Acting", "Success", |m| m.history.last().unwrap().success)
+    .build()?;
+```
+
+### 7. Explicit Plan-and-Execute
+
+Force the agent to generate and manage an explicit step-by-step plan before execution:
+
+```rust
+use agentsm::plan::{PlanningMode, PlanRevisionTrigger};
+
+let mode = PlanningMode::Explicit {
+    max_plan_steps: 5,
+    revision_triggers: vec![PlanRevisionTrigger::ToolFailure],
+};
+
+let engine = AgentBuilder::new("task")
+    .openai("gpt-4o")
+    .planning_mode(mode)
+    .build()?;
+```
+
+### 8. Dynamic Tool Composition
+
+Synthesize new composite tools at runtime by chaining existing primitive tools:
+
+```rust
+use agentsm::tool_synthesis::{CompositionConfig, CompositeToolSpec, ToolPipelineStep};
+
+let config = CompositionConfig { max_composite_tools: 5, max_pipeline_depth: 3 };
+
+let engine = AgentBuilder::new("task")
+    .add_tool(search_tool)
+    .add_tool(summarize_tool)
+    .tool_composition(config)
+    .build()?;
+
+// The agent can now create a tool combining search -> summarize
+```

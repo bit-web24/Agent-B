@@ -32,9 +32,10 @@ struct AnthropicMessage {
 // ── Anthropic response types ─────────────────────────────
 
 #[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
 struct AnthropicResponse {
     content:     Vec<AnthropicContentBlock>,
-    stop_reason: String,
+    stop_reason: Option<String>,
     usage:       AnthropicUsage,
 }
 
@@ -60,6 +61,7 @@ enum AnthropicContentBlock {
 
 #[derive(serde::Deserialize, Debug)]
 #[serde(tag = "type")]
+#[allow(dead_code)]
 enum AnthropicStreamEvent {
     #[serde(rename = "message_start")]
     MessageStart { message: AnthropicResponse },
@@ -87,6 +89,7 @@ enum AnthropicDelta {
 }
 
 #[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
 struct AnthropicMessageDelta {
     stop_reason: Option<String>,
     stop_sequence: Option<String>,
@@ -305,7 +308,7 @@ impl AsyncLlmCaller for AnthropicCaller {
                     let mut accumulated_tool_name = String::new();
                     let mut accumulated_tool_args = String::new();
                     
-                    let mut accumulated_usage: Option<crate::budget::TokenUsage> = None;
+                    let accumulated_usage: Option<crate::budget::TokenUsage> = None;
                     
                     resp.bytes_stream()
                         .map(|b| b.map_err(|e| format!("Stream error: {}", e)))
@@ -315,16 +318,14 @@ impl AsyncLlmCaller for AnthropicCaller {
                             let mut chunks = Vec::new();
                             
                             for line in s.lines() {
-                                if line.starts_with("data: ") {
-                                    let data = &line[6..];
+                                if let Some(data) = line.strip_prefix("data: ") {
                                     if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
                                         match event {
-                                            AnthropicStreamEvent::ContentBlockStart { content_block, .. } => {
-                                                if let AnthropicContentBlock::ToolUse { id, name, .. } = content_block {
-                                                    accumulated_tool_id = id;
-                                                    accumulated_tool_name = name;
-                                                }
+                                            AnthropicStreamEvent::ContentBlockStart { content_block: AnthropicContentBlock::ToolUse { id, name, .. }, .. } => {
+                                                accumulated_tool_id = id;
+                                                accumulated_tool_name = name;
                                             }
+                                            AnthropicStreamEvent::ContentBlockStart { .. } => {}
                                             AnthropicStreamEvent::ContentBlockDelta { delta, .. } => {
                                                 match delta {
                                                     AnthropicDelta::TextDelta { text } => {
@@ -341,7 +342,8 @@ impl AsyncLlmCaller for AnthropicCaller {
                                                 }
                                             }
                                             AnthropicStreamEvent::MessageDelta { delta, usage, .. } => {
-                                                accumulated_usage = Some(crate::budget::TokenUsage::new(usage.input_tokens, usage.output_tokens));
+                                                // _accumulated_usage is captured but not fully used yet
+                                                let _accumulated_usage = crate::budget::TokenUsage::new(usage.input_tokens, usage.output_tokens);
                                                 if delta.stop_reason.is_some() {
                                                     if !accumulated_tool_args.is_empty() {
                                                         let args: std::collections::HashMap<String, serde_json::Value> = 
