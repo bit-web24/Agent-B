@@ -116,7 +116,7 @@ struct ToolParam {
 ///
 /// # Example
 /// ```no_run
-/// # use agentsm::Tool;
+/// # use agent_b::Tool;
 /// # use std::collections::HashMap;
 /// let tool = Tool::new("search", "Search the web for current information")
 ///     .param("query", "string", "The search query")

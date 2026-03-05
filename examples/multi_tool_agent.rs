@@ -8,8 +8,8 @@
 //! OPENAI_API_KEY=sk-... cargo run --example multi_tool_agent
 //! ```
 
-use agentsm::AgentBuilder;
-use agentsm::llm::OpenAiCaller;
+use agent_b::AgentBuilder;
+use agent_b::llm::OpenAiCaller;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,7 +18,7 @@ use std::sync::Arc;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    println!("=== agentsm-rs Multi-Tool Agent Example ===\n");
+    println!("=== Agent-B Multi-Tool Agent Example ===\n");
     println!("Task: Calculate 137 * 48 and then find today's weather in London.\n");
 
     let llm = Arc::new(OpenAiCaller::new());

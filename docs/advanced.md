@@ -9,11 +9,11 @@ States and Events are string-based, so you can define completely custom state ma
 ### 1. Define a Custom State
 
 ```rust
-use agentsm::states::AgentState;
-use agentsm::{Event, AgentOutput};
-use agentsm::memory::AgentMemory;
-use agentsm::tools::ToolRegistry;
-use agentsm::llm::AsyncLlmCaller;
+use agent_b::states::AgentState;
+use agent_b::{Event, AgentOutput};
+use agent_b::memory::AgentMemory;
+use agent_b::tools::ToolRegistry;
+use agent_b::llm::AsyncLlmCaller;
 use async_trait::async_trait;
 
 struct ResearchingState;
@@ -56,7 +56,7 @@ Supports session persistence for long-running workflows or crash recovery.
 ### Using the SQLite Store
 
 ```rust
-use agentsm::checkpoint::SqliteCheckpointStore;
+use agent_b::checkpoint::SqliteCheckpointStore;
 
 let store = Arc::new(SqliteCheckpointStore::new("agents.db")?);
 
@@ -93,7 +93,7 @@ High-risk actions can require human approval via the state machine.
 ### Approval Policies
 
 ```rust
-use agentsm::human::{ApprovalPolicy, RiskLevel, HumanDecision};
+use agent_b::human::{ApprovalPolicy, RiskLevel, HumanDecision};
 
 let engine = AgentBuilder::new("task")
     .openai("")
@@ -175,7 +175,7 @@ engine.trace().print();
 Run multiple parallel agent branches exploring different paths. The best result is chosen automatically:
 
 ```rust
-use agentsm::fork::{ForkConfig, MergeStrategy, StepEfficiencyScorer};
+use agent_b::fork::{ForkConfig, MergeStrategy, StepEfficiencyScorer};
 
 let config = ForkConfig::new(3) // 3 parallel branches
     .max_depth(10) // 10 steps max per branch
@@ -193,7 +193,7 @@ let engine = AgentBuilder::new("Complex task")
 Dynamically route requests to different models based on context, cost, or agent state:
 
 ```rust
-use agentsm::routing::{RoutingPolicy, RoutingRule, condition};
+use agent_b::routing::{RoutingPolicy, RoutingRule, condition};
 
 let mut policy = RoutingPolicy::new("gpt-3.5-turbo"); // Default
 // Route to GPT-4 for high confidence steps >= 5
@@ -213,7 +213,7 @@ let engine = AgentBuilder::new("task")
 Automatically pause, reset, or dial down the temperature when the agent hits failure loops:
 
 ```rust
-use agentsm::healing::{HealingPolicy, Trigger, Action};
+use agent_b::healing::{HealingPolicy, Trigger, Action};
 
 let mut healing = HealingPolicy::new();
 healing.add_rule(
@@ -232,7 +232,7 @@ let engine = AgentBuilder::new("task")
 Monitors the agent's behavior for infinite loops, repetitive outputs, or idle tool usage:
 
 ```rust
-use agentsm::introspection::{IntrospectionEngine, LoopDetector};
+use agent_b::introspection::{IntrospectionEngine, LoopDetector};
 
 let mut insights = IntrospectionEngine::new();
 insights.add_detector(LoopDetector { max_repetitions: 3 });
@@ -248,7 +248,7 @@ let engine = AgentBuilder::new("task")
 Record every action. Replay from checkpoints to debug or patch intermediate steps:
 
 ```rust
-use agentsm::replay::ReplayRecording;
+use agent_b::replay::ReplayRecording;
 
 let mut engine = AgentBuilder::new("task")
     .openai("gpt-4o")
@@ -277,7 +277,7 @@ let engine = AgentBuilder::new("task")
 Force the agent to generate and manage an explicit step-by-step plan before execution:
 
 ```rust
-use agentsm::plan::{PlanningMode, PlanRevisionTrigger};
+use agent_b::plan::{PlanningMode, PlanRevisionTrigger};
 
 let mode = PlanningMode::Explicit {
     max_plan_steps: 5,
@@ -295,7 +295,7 @@ let engine = AgentBuilder::new("task")
 Synthesize new composite tools at runtime by chaining existing primitive tools:
 
 ```rust
-use agentsm::tool_synthesis::{CompositionConfig, CompositeToolSpec, ToolPipelineStep};
+use agent_b::tool_synthesis::{CompositionConfig, CompositeToolSpec, ToolPipelineStep};
 
 let config = CompositionConfig { max_composite_tools: 5, max_pipeline_depth: 3 };
 

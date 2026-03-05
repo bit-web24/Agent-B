@@ -1,7 +1,7 @@
-use agentsm::AgentBuilder;
-use agentsm::llm::MockLlmCaller;
-use agentsm::types::{LlmResponse, ToolCall};
-use agentsm::checkpoint::{MemoryCheckpointStore, FileCheckpointStore, SqliteCheckpointStore, CheckpointStore, AgentCheckpoint};
+use agent_b::AgentBuilder;
+use agent_b::llm::MockLlmCaller;
+use agent_b::types::{LlmResponse, ToolCall};
+use agent_b::checkpoint::{MemoryCheckpointStore, FileCheckpointStore, SqliteCheckpointStore, CheckpointStore, AgentCheckpoint};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -25,7 +25,7 @@ async fn test_persistence_memory_store() {
             },
         ];
         
-        let tool = agentsm::Tool::new("test_tool", "desc")
+        let tool = agent_b::Tool::new("test_tool", "desc")
             .call(|_| Ok("result 1".to_string()));
 
         let mut agent = AgentBuilder::new("Task 1")
@@ -59,7 +59,7 @@ async fn test_persistence_memory_store() {
             },
         ];
         
-        let tool = agentsm::Tool::new("test_tool", "desc")
+        let tool = agent_b::Tool::new("test_tool", "desc")
             .call(|_| Ok("result 1".to_string()));
 
         let mut agent = AgentBuilder::new("Dummy Task")

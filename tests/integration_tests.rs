@@ -1,14 +1,14 @@
-//! Integration tests for agentsm-rs.
+//! Integration tests for Agent-B.
 //!
 //! All tests use `MockLlmCaller` — no network calls are made.
 //! Run with: `cargo test`
 
-use agentsm::llm::AsyncLlmCaller;
-use agentsm::llm::MockLlmCaller;
-use agentsm::memory::AgentMemory;
-use agentsm::states::{ActingState, AgentState, IdleState, ObservingState, PlanningState};
-use agentsm::transitions::build_transition_table;
-use agentsm::{
+use agent_b::llm::AsyncLlmCaller;
+use agent_b::llm::MockLlmCaller;
+use agent_b::memory::AgentMemory;
+use agent_b::states::{ActingState, AgentState, IdleState, ObservingState, PlanningState};
+use agent_b::transitions::build_transition_table;
+use agent_b::{
     AgentBuilder, AgentEngine, AgentError, AgentOutput, Event, LlmResponse, LlmStreamChunk, State,
     ToolCall, ToolRegistry,
 };
@@ -537,7 +537,7 @@ async fn test_builder_requires_llm() {
 
 #[tokio::test]
 async fn test_tool_builder_produces_valid_schema() {
-    use agentsm::Tool;
+    use agent_b::Tool;
 
     let tool = Tool::new("search", "Search the web for information")
         .param("query", "string", "The search query")
@@ -593,7 +593,7 @@ async fn test_tool_builder_produces_valid_schema() {
 
 #[tokio::test]
 async fn test_add_tool_with_builder() {
-    use agentsm::Tool;
+    use agent_b::Tool;
 
     let mock = make_mock_llm(vec![
         make_tool_call_response("calculator"),
@@ -626,8 +626,8 @@ async fn test_add_tool_with_builder() {
 
 #[tokio::test]
 async fn test_retry_recovers_after_transient_error() {
-    use agentsm::llm::LlmCaller;
-    use agentsm::RetryingLlmCaller;
+    use agent_b::llm::LlmCaller;
+    use agent_b::RetryingLlmCaller;
 
     // Create a custom mock that fails twice, succeeds on third try
     // We can't use MockLlmCaller directly for error simulation,
@@ -641,7 +641,7 @@ async fn test_retry_recovers_after_transient_error() {
     }
 
     #[async_trait]
-    impl agentsm::llm::AsyncLlmCaller for FailNTimesCaller {
+    impl agent_b::llm::AsyncLlmCaller for FailNTimesCaller {
         async fn call_async(
             &self,
             memory: &AgentMemory,
@@ -649,7 +649,7 @@ async fn test_retry_recovers_after_transient_error() {
             model: &str,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Result<LlmResponse, String> {
-            agentsm::llm::LlmCaller::call(self, memory, tools, model)
+            agent_b::llm::LlmCaller::call(self, memory, tools, model)
         }
         fn call_stream_async<'a>(
             &'a self,
@@ -659,7 +659,7 @@ async fn test_retry_recovers_after_transient_error() {
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
             use futures::stream::{self, StreamExt};
-            let resp = agentsm::llm::LlmCaller::call(self, m, t, mo);
+            let resp = agent_b::llm::LlmCaller::call(self, m, t, mo);
             match resp {
                 Ok(r) => stream::once(async move { Ok(LlmStreamChunk::Done(r)) }).boxed(),
                 Err(e) => stream::once(async move { Err(e) }).boxed(),
@@ -692,7 +692,7 @@ async fn test_retry_recovers_after_transient_error() {
     }
 
     let counter = Arc::new(AtomicUsize::new(0));
-    let inner: Arc<dyn agentsm::llm::AsyncLlmCaller> = Arc::new(FailNTimesCaller {
+    let inner: Arc<dyn agent_b::llm::AsyncLlmCaller> = Arc::new(FailNTimesCaller {
         fail_count: counter.clone(),
         failures_left: 2,
     });
@@ -722,8 +722,8 @@ async fn test_retry_recovers_after_transient_error() {
 
 #[tokio::test]
 async fn test_retry_auth_error_fails_fast() {
-    use agentsm::llm::LlmCaller;
-    use agentsm::RetryingLlmCaller;
+    use agent_b::llm::LlmCaller;
+    use agent_b::RetryingLlmCaller;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -732,7 +732,7 @@ async fn test_retry_auth_error_fails_fast() {
     }
 
     #[async_trait]
-    impl agentsm::llm::AsyncLlmCaller for AuthErrorCaller {
+    impl agent_b::llm::AsyncLlmCaller for AuthErrorCaller {
         async fn call_async(
             &self,
             memory: &AgentMemory,
@@ -740,7 +740,7 @@ async fn test_retry_auth_error_fails_fast() {
             model: &str,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Result<LlmResponse, String> {
-            agentsm::llm::LlmCaller::call(self, memory, tools, model)
+            agent_b::llm::LlmCaller::call(self, memory, tools, model)
         }
         fn call_stream_async<'a>(
             &'a self,
@@ -750,7 +750,7 @@ async fn test_retry_auth_error_fails_fast() {
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> futures::stream::BoxStream<'a, Result<LlmStreamChunk, String>> {
             use futures::stream::{self, StreamExt};
-            let resp = agentsm::llm::LlmCaller::call(self, m, t, mo);
+            let resp = agent_b::llm::LlmCaller::call(self, m, t, mo);
             match resp {
                 Ok(r) => stream::once(async move { Ok(LlmStreamChunk::Done(r)) }).boxed(),
                 Err(e) => stream::once(async move { Err(e) }).boxed(),
@@ -771,7 +771,7 @@ async fn test_retry_auth_error_fails_fast() {
     }
 
     let counter = Arc::new(AtomicUsize::new(0));
-    let inner: Arc<dyn agentsm::llm::AsyncLlmCaller> = Arc::new(AuthErrorCaller {
+    let inner: Arc<dyn agent_b::llm::AsyncLlmCaller> = Arc::new(AuthErrorCaller {
         call_count: counter.clone(),
     });
     let retrying = RetryingLlmCaller::new(inner, 3);
@@ -797,7 +797,7 @@ async fn test_retry_auth_error_fails_fast() {
 
 #[tokio::test]
 async fn test_custom_state_graph() {
-    use agentsm::llm::LlmCaller;
+    use agent_b::llm::LlmCaller;
 
     /// A custom state that simulates "researching" work.
     /// It logs a trace entry and emits a custom "ResearchDone" event.
@@ -813,7 +813,7 @@ async fn test_custom_state_graph() {
             &self,
             memory: &mut AgentMemory,
             _tools: &std::sync::Arc<ToolRegistry>,
-            _llm: &dyn agentsm::llm::AsyncLlmCaller,
+            _llm: &dyn agent_b::llm::AsyncLlmCaller,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             memory.log(
@@ -833,7 +833,7 @@ async fn test_custom_state_graph() {
     }
 
     #[async_trait]
-    impl agentsm::llm::AsyncLlmCaller for ResearchTriggerLlm {
+    impl agent_b::llm::AsyncLlmCaller for ResearchTriggerLlm {
         async fn call_async(
             &self,
             memory: &AgentMemory,
@@ -907,7 +907,7 @@ async fn test_custom_state_graph() {
             &self,
             memory: &mut AgentMemory,
             _tools: &std::sync::Arc<ToolRegistry>,
-            _llm: &dyn agentsm::llm::AsyncLlmCaller,
+            _llm: &dyn agent_b::llm::AsyncLlmCaller,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             let count = self
@@ -997,7 +997,7 @@ async fn test_custom_terminal_state() {
             &self,
             memory: &mut AgentMemory,
             _tools: &std::sync::Arc<ToolRegistry>,
-            _llm: &dyn agentsm::llm::AsyncLlmCaller,
+            _llm: &dyn agent_b::llm::AsyncLlmCaller,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             memory.final_answer = Some("Custom terminal state reached!".to_string());
@@ -1019,7 +1019,7 @@ async fn test_custom_terminal_state() {
             &self,
             memory: &mut AgentMemory,
             _tools: &std::sync::Arc<ToolRegistry>,
-            _llm: &dyn agentsm::llm::AsyncLlmCaller,
+            _llm: &dyn agent_b::llm::AsyncLlmCaller,
             _output_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentOutput>>,
         ) -> Event {
             memory.step += 1;

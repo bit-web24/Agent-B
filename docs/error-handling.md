@@ -4,7 +4,7 @@
 
 ## Philosophy: Failure as Data
 
-A core design principle of `agentsm-rs` is that **most failures are data, not exceptions**.
+A core design principle of `Agent-B` is that **most failures are data, not exceptions**.
 
 When a tool call fails, the error message becomes a `last_observation` — the LLM sees it on the next Planning cycle and can try a different approach.
 

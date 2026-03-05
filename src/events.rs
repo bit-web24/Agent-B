@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// # Defining a Custom Event
 ///
 /// ```
-/// use agentsm::Event;
+/// use agent_b::Event;
 /// let evt = Event::new("NeedsResearch");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

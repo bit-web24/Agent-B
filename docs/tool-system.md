@@ -9,7 +9,7 @@ Tools are the agent's interface to the external world. Every capability the agen
 The `Tool` builder provides a clean, schema-free API:
 
 ```rust
-use agentsm::{AgentBuilder, Tool};
+use agent_b::{AgentBuilder, Tool};
 
 AgentBuilder::new("task")
     .openai("sk-...")
@@ -216,7 +216,7 @@ If `parallel_tools` is enabled (default: true) and the LLM produces a multi-tool
 
 ## Sub-Agents as Tools
 
-`agentsm-rs` allows you to treat an agent as a regular tool. This enables recursive delegation and modular multi-agent systems.
+`Agent-B` allows you to treat an agent as a regular tool. This enables recursive delegation and modular multi-agent systems.
 
 ### Using `AgentBuilder::as_tool`
 
@@ -267,7 +267,7 @@ engine.memory.blacklist_tool("dangerous_tool");
 For programmatic registration outside of the builder:
 
 ```rust
-use agentsm::ToolRegistry;
+use agent_b::ToolRegistry;
 use serde_json::json;
 
 let mut registry = ToolRegistry::new();

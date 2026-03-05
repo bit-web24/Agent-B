@@ -1,6 +1,6 @@
 # API Reference
 
-Complete public API surface of `agentsm-rs`. All types are in the `agentsm` crate root unless noted.
+Complete public API surface of `Agent-B`. All types are in the `agent_b` crate root unless noted.
 
 ---
 
@@ -336,7 +336,7 @@ pub enum AgentError {
 ## Crate Root Re-exports
 
 ```rust
-use agentsm::{
+use agent_b::{
     AgentBuilder, AgentEngine, AgentConfig, AgentError,
     State, Event,
     LlmResponse, ToolCall, ToolResult, HistoryEntry,

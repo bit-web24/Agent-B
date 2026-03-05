@@ -1,4 +1,4 @@
-# agentsm-rs
+# Agent-B
 
 > **A production-grade, zero-framework Agentic AI library for Rust built on the Hybrid State Machine pattern.**
 >
@@ -41,14 +41,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-agentsm = { path = "." }
+agent_b = { path = "." }
 tokio = { version = "1", features = ["full"] }
 ```
 
 ### Minimal Agent (OpenAI)
 
 ```rust
-use agentsm::{AgentBuilder, Tool};
+use agent_b::{AgentBuilder, Tool};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -309,7 +309,7 @@ let engine = AgentBuilder::new("Compare weather in NYC and London")
 Control which tool calls require human approval:
 
 ```rust
-use agentsm::human::{ApprovalPolicy, RiskLevel, HumanDecision};
+use agent_b::human::{ApprovalPolicy, RiskLevel, HumanDecision};
 
 let engine = AgentBuilder::new("task")
     .openai("")
@@ -331,7 +331,7 @@ let engine = AgentBuilder::new("task")
 ## Checkpointing & Crash Recovery
 
 ```rust
-use agentsm::checkpoint::{SqliteCheckpointStore, FileCheckpointStore, MemoryCheckpointStore};
+use agent_b::checkpoint::{SqliteCheckpointStore, FileCheckpointStore, MemoryCheckpointStore};
 
 // SQLite store
 let store = Arc::new(SqliteCheckpointStore::new("checkpoints.db")?);
@@ -403,7 +403,7 @@ let engine = AgentBuilder::new("task")
 Define your own states, events, and transitions (LangGraph-style):
 
 ```rust
-use agentsm::states::AgentState;
+use agent_b::states::AgentState;
 
 struct ResearchingState;
 
@@ -447,7 +447,7 @@ let engine = AgentBuilder::new("task")
 ## Project Structure
 
 ```
-agentsm-rs/
+Agent-B/
 ├── Cargo.toml
 ├── src/
 │   ├── lib.rs           # Public API surface and re-exports

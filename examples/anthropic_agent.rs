@@ -9,8 +9,8 @@
 //! RUST_LOG=info ANTHROPIC_API_KEY=sk-ant-... cargo run --example anthropic_agent
 //! ```
 
-use agentsm::AgentBuilder;
-use agentsm::llm::AnthropicCaller;
+use agent_b::AgentBuilder;
+use agent_b::llm::AnthropicCaller;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use std::sync::Arc;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    println!("=== agentsm-rs Anthropic Agent Example ===\n");
+    println!("=== Agent-B Anthropic Agent Example ===\n");
     println!("Using: AnthropicCaller (Claude via native reqwest HTTP)\n");
 
     // Load the Anthropic API key from the ANTHROPIC_API_KEY environment variable

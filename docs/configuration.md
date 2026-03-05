@@ -49,7 +49,7 @@ AgentBuilder::new("task")
 ### Via Builder — Full Config
 
 ```rust
-use agentsm::AgentConfig;
+use agent_b::AgentConfig;
 
 AgentBuilder::new("task")
     .openai("")

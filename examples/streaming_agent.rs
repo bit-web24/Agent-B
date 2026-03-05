@@ -1,4 +1,4 @@
-use agentsm::{AgentBuilder, AgentOutput, Tool};
+use agent_b::{AgentBuilder, AgentOutput, Tool};
 use futures::StreamExt;
 use std::io::{Write, stdout};
 

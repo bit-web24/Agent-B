@@ -1,6 +1,6 @@
 # Testing Guide
 
-`agentsm-rs` is designed for testability from the ground up. The `MockLlmCaller` enables full agent runs without any network calls.
+`Agent-B` is designed for testability from the ground up. The `MockLlmCaller` enables full agent runs without any network calls.
 
 ---
 
@@ -20,8 +20,8 @@ cargo test -- --nocapture                     # With output printed
 `MockLlmCaller` returns pre-programmed `LlmResponse` values in sequence. Wrap in `Arc` for use with the builder:
 
 ```rust
-use agentsm::llm::MockLlmCaller;
-use agentsm::{LlmResponse, ToolCall};
+use agent_b::llm::MockLlmCaller;
+use agent_b::{LlmResponse, ToolCall};
 use std::sync::Arc;
 use std::collections::HashMap;
 

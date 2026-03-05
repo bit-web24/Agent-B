@@ -1,6 +1,6 @@
 # Core Concepts
 
-This document explains the fundamental building blocks of `agentsm-rs`.
+This document explains the fundamental building blocks of `Agent-B`.
 
 ---
 

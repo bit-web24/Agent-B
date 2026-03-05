@@ -10,7 +10,7 @@ use std::collections::HashMap;
 /// # Defining a Custom State
 ///
 /// ```
-/// use agentsm::State;
+/// use agent_b::State;
 /// let researching = State::new("Researching");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -234,7 +234,7 @@ pub struct AgentConfig {
     /// Example:
     /// ```no_run
     /// # use std::collections::HashMap;
-    /// # use agentsm::AgentConfig;
+    /// # use agent_b::AgentConfig;
     /// let _config = AgentConfig {
     ///     models: [
     ///         ("default".to_string(),     "gpt-4o".to_string()),
@@ -257,7 +257,7 @@ pub struct AgentConfig {
 ///
 /// # Example
 /// ```no_run
-/// # use agentsm::types::OutputSchema;
+/// # use agent_b::types::OutputSchema;
 /// let schema = OutputSchema {
 ///     name: "person".to_string(),
 ///     description: Some("Extract person information".to_string()),

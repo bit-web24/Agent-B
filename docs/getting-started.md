@@ -2,27 +2,27 @@
 
 ## Installation
 
-Add `agentsm` to your `Cargo.toml`:
+Add `agent_b` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-agentsm-rs = { path = "../agentsm-rs" }  # local path
+Agent-B = { path = "../Agent-B" }  # local path
 # OR once published:
-# agentsm = "0.1"
+# agent_b = "0.1"
 
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 anyhow = "1"
 ```
 
-> **Note:** `agentsm-rs` uses `rustls` for TLS — no OpenSSL installation needed.
+> **Note:** `Agent-B` uses `rustls` for TLS — no OpenSSL installation needed.
 
 ---
 
 ## Your First Agent in 5 Minutes
 
 ```rust
-use agentsm::{AgentBuilder, Tool};
+use agent_b::{AgentBuilder, Tool};
 use serde_json::json;
 
 #[tokio::main]

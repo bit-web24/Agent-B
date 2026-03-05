@@ -1,6 +1,6 @@
 # LLM Providers
 
-`agentsm-rs` supports OpenAI, Anthropic, any OpenAI-compatible API, and custom providers through a simple trait.
+`Agent-B` supports OpenAI, Anthropic, any OpenAI-compatible API, and custom providers through a simple trait.
 
 ---
 
@@ -22,7 +22,7 @@ AgentBuilder::new("task").groq("gsk_...").model("llama-3.3-70b-versatile")
 AgentBuilder::new("task").ollama("").model("llama3.2")
 
 // Any OpenAI-compatible API (escape hatch)
-use agentsm::llm::OpenAiCaller;
+use agent_b::llm::OpenAiCaller;
 AgentBuilder::new("task")
     .llm(Arc::new(OpenAiCaller::with_base_url(
         "https://api.together.xyz/v1",
@@ -80,8 +80,8 @@ AgentBuilder::new("task")
 `MockLlmCaller` returns pre-programmed responses in sequence. No network calls.
 
 ```rust
-use agentsm::llm::MockLlmCaller;
-use agentsm::LlmResponse;
+use agent_b::llm::MockLlmCaller;
+use agent_b::LlmResponse;
 
 let mock = Arc::new(MockLlmCaller::new(vec![
     LlmResponse::ToolCall {

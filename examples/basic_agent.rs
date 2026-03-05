@@ -8,8 +8,8 @@
 //! RUST_LOG=debug OPENAI_API_KEY=sk-... cargo run --example basic_agent
 //! ```
 
-use agentsm::AgentBuilder;
-use agentsm::llm::OpenAiCaller;
+use agent_b::AgentBuilder;
+use agent_b::llm::OpenAiCaller;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
     // Initialize structured logging — set RUST_LOG=debug|info|warn
     tracing_subscriber::fmt::init();
 
-    println!("=== agentsm-rs Basic Agent Example ===\n");
+    println!("=== Agent-B Basic Agent Example ===\n");
 
     // Build an OpenAI LLM caller (reads OPENAI_API_KEY from environment)
     let llm = Arc::new(OpenAiCaller::new());

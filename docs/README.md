@@ -1,6 +1,6 @@
-# agentsm-rs Documentation
+# Agent-B Documentation
 
-Welcome to the **agentsm-rs** documentation — a production-grade Agentic AI library for Rust built on the Hybrid State Machine pattern.
+Welcome to the **Agent-B** documentation — a production-grade Agentic AI library for Rust built on the Hybrid State Machine pattern.
 
 ## Table of Contents
 

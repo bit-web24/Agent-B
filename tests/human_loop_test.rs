@@ -1,14 +1,14 @@
-use agentsm::AgentBuilder;
-use agentsm::llm::MockLlmCaller;
-use agentsm::human::{ApprovalPolicy, RiskLevel, HumanDecision, HumanApprovalRequest};
-use agentsm::types::{LlmResponse, ToolCall};
+use agent_b::AgentBuilder;
+use agent_b::llm::MockLlmCaller;
+use agent_b::human::{ApprovalPolicy, RiskLevel, HumanDecision, HumanApprovalRequest};
+use agent_b::types::{LlmResponse, ToolCall};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 #[tokio::test]
 async fn test_human_approval_flow() {
     // 1. Define a high-risk tool
-    let unsafe_tool = agentsm::Tool::new("delete_database", "Deletes all data")
+    let unsafe_tool = agent_b::Tool::new("delete_database", "Deletes all data")
         .call(|_| Ok("Database deleted".to_string()));
 
     // 2. Mock LLM that wants to call the unsafe tool
@@ -58,7 +58,7 @@ async fn test_human_approval_flow() {
 
 #[tokio::test]
 async fn test_human_rejection_flow() {
-    let unsafe_tool = agentsm::Tool::new("delete_database", "Deletes all data")
+    let unsafe_tool = agent_b::Tool::new("delete_database", "Deletes all data")
         .call(|_| Ok("Database deleted".to_string()));
 
     let responses = vec![
@@ -102,7 +102,7 @@ async fn test_human_rejection_flow() {
 
 #[tokio::test]
 async fn test_human_modification_flow() {
-    let safe_tool = agentsm::Tool::new("list_files", "List files")
+    let safe_tool = agent_b::Tool::new("list_files", "List files")
         .call(|_| Ok("file1, file2".to_string()));
     
     let responses = vec![

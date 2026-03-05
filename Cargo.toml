@@ -1,15 +1,15 @@
 [package]
-name        = "agentsm-rs"
+name        = "Agent-B"
 version     = "0.1.0"
 edition     = "2021"
 description = "Production-grade Agentic AI library using Hybrid State Machine pattern"
 license     = "MIT"
-repository  = "https://github.com/yourusername/agentsm-rs"
+repository  = "https://github.com/yourusername/Agent-B"
 keywords    = ["ai", "agent", "state-machine", "llm", "anthropic"]
 categories  = ["science", "asynchronous"]
 
 [lib]
-name = "agentsm"
+name = "agent_b"
 path = "src/lib.rs"
 
 [[example]]

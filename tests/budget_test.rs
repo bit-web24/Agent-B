@@ -1,7 +1,7 @@
-use agentsm::AgentBuilder;
-use agentsm::llm::MockLlmCaller;
-use agentsm::types::{LlmResponse, ToolCall};
-use agentsm::budget::TokenUsage;
+use agent_b::AgentBuilder;
+use agent_b::llm::MockLlmCaller;
+use agent_b::types::{LlmResponse, ToolCall};
+use agent_b::budget::TokenUsage;
 use std::collections::HashMap;
 use std::sync::Arc;
 

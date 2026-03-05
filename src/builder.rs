@@ -356,7 +356,7 @@ impl AgentBuilder {
     ///
     /// # Example
     /// ```no_run
-    /// # use agentsm::AgentBuilder;
+    /// # use agent_b::AgentBuilder;
     /// # use serde_json::json;
     /// let builder = AgentBuilder::new("Extract person info")
     ///     .openai("")

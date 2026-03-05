@@ -37,7 +37,7 @@ pub enum PromptError {
 ///
 /// # Example
 /// ```
-/// use agentsm::prompt::PromptTemplate;
+/// use agent_b::prompt::PromptTemplate;
 ///
 /// let tpl = PromptTemplate::new("You are a {role}. Focus on {topic}.")
 ///     .var("role", "Rust expert")

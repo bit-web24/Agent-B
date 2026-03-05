@@ -2,7 +2,7 @@
 
 ## Overview
 
-`agentsm-rs` implements a **Hybrid State Machine** — a control loop where:
+`Agent-B` implements a **Hybrid State Machine** — a control loop where:
 
 - A **directed graph** (the Transition Table) defines what can happen
 - **State handlers** define what does happen at each node
@@ -144,7 +144,7 @@ loop:
 ## File Structure
 
 ```
-agentsm-rs/
+Agent-B/
 ├── src/
 │   ├── lib.rs          ← Public API re-exports (includes OutputSchema)
 │   ├── types.rs        ← State, Event, ToolCall, LlmResponse, AgentConfig, OutputSchema
