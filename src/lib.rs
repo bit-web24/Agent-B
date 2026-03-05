@@ -17,8 +17,10 @@ pub mod memory;
 pub mod memory_strategy;
 pub mod plan;
 pub mod prompt;
+pub mod replay;
 pub mod routing;
 pub mod states;
+pub mod tool_synthesis;
 pub mod tools;
 pub mod trace;
 pub mod transitions;
@@ -46,9 +48,17 @@ pub use memory::AgentMemory;
 pub use memory_strategy::{FullMemory, MemoryStrategy, SlidingWindowMemory, SummaryMemory};
 pub use plan::{AgentPlan, PlanRevisionTrigger, PlanStep, PlanningMode, StepStatus};
 pub use prompt::{PromptError, PromptTemplate};
+pub use replay::{
+    DiffKind, Patch, ReplayDiffEntry, ReplayEngine, ReplayEntry, ReplayEntryKind, ReplayRecorder,
+    ReplayRecording,
+};
 pub use routing::{
     BudgetPctAbove, ConfidenceBelow, RoutingCondition, RoutingPolicy, RoutingRule, StepAbove,
     ToolFailureRateAbove,
+};
+pub use tool_synthesis::{
+    CompositeToolRegistry, CompositeToolSpec, CompositionConfig, PipelineResult, ToolPipelineStep,
+    ToolSource,
 };
 pub use tools::{Tool, ToolFn, ToolRegistry};
 pub use trace::{Trace, TraceEntry};

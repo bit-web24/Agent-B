@@ -308,6 +308,14 @@ impl AgentEngine {
         tracing::info!(from = %self.state, event = %event, to = %next_state, "transition");
         println!("  ══ {} --{}-->{} ══", self.state, event, next_state);
 
+        // Replay: record state transition
+        self.memory.replay_recorder.record_transition(
+            self.memory.step,
+            self.state.as_str(),
+            event.as_str(),
+            next_state.as_str(),
+        );
+
         // Plan-and-Execute: advance plan step on Observing→Planning transitions
         let from_state = self.state.clone();
         self.state = next_state;

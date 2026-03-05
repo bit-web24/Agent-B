@@ -159,6 +159,25 @@ impl AgentBuilder {
         self
     }
 
+    /// Enable deterministic replay recording for time-travel debugging.
+    pub fn replay_recording(mut self, mode: crate::replay::ReplayRecording) -> Self {
+        match mode {
+            crate::replay::ReplayRecording::Off => {
+                self.memory.replay_recorder = crate::replay::ReplayRecorder::disabled();
+            }
+            _ => {
+                self.memory.replay_recorder = crate::replay::ReplayRecorder::new(&self.session_id);
+            }
+        }
+        self
+    }
+
+    /// Enable tool composition (dynamic tool creation from pipelines).
+    pub fn tool_composition(mut self, config: crate::tool_synthesis::CompositionConfig) -> Self {
+        self.memory.composite_tools = crate::tool_synthesis::CompositeToolRegistry::new(config);
+        self
+    }
+
     /// Set the LLM caller explicitly.
     pub fn llm(mut self, llm: Arc<dyn AsyncLlmCaller>) -> Self {
         self.llm = Some(llm);

@@ -122,6 +122,16 @@ pub struct AgentMemory {
     /// Planning mode (implicit or explicit)
     #[serde(skip, default)]
     pub planning_mode: crate::plan::PlanningMode,
+
+    // ── Deterministic Replay ───────────────────────────────
+    /// Replay recorder for time-travel debugging
+    #[serde(skip, default = "default_replay_recorder")]
+    pub replay_recorder: crate::replay::ReplayRecorder,
+
+    // ── Tool Composition ─────────────────────────────────
+    /// Registry for composite tools created during the session
+    #[serde(skip, default)]
+    pub composite_tools: crate::tool_synthesis::CompositeToolRegistry,
 }
 
 fn default_hooks() -> Arc<dyn AgentHooks> {
@@ -134,6 +144,10 @@ fn default_cache() -> Arc<dyn LlmCache> {
 
 fn default_memory_strategy() -> Arc<dyn MemoryStrategy> {
     Arc::new(FullMemory)
+}
+
+fn default_replay_recorder() -> crate::replay::ReplayRecorder {
+    crate::replay::ReplayRecorder::disabled()
 }
 
 impl std::fmt::Debug for AgentMemory {
@@ -179,6 +193,8 @@ impl AgentMemory {
             anomaly_notes: Vec::new(),
             current_plan: None,
             planning_mode: crate::plan::PlanningMode::Implicit,
+            replay_recorder: crate::replay::ReplayRecorder::disabled(),
+            composite_tools: Default::default(),
         }
     }
 
