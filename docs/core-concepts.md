@@ -411,3 +411,19 @@ let engine = AgentBuilder::new("task")
 
 The strategy is applied at the end of `build_messages()`, transforming the full message list before it reaches the LLM.
 
+---
+
+## Advanced Concepts
+
+The framework natively supports 8 advanced AI patterns beyond standard state execution:
+
+1. **Execution Contracts**: `Guard`, `Invariant`, and `PostCondition` closures.
+2. **Adaptive Model Routing**: Dynamically hot-swap LLMs mid-execution.
+3. **Agent Introspection**: Background telemetry for anomaly detection.
+4. **Self-Healing Policies**: Auto-recover from execution/parsing failures.
+5. **Plan-and-Execute**: Step-by-step pre-planning and dynamic revision.
+6. **Agent Forking**: Multi-path speculative verification.
+7. **Deterministic Replay**: Micro-state logging and NDJSON trace replay.
+8. **Tool Composition**: Runtime synthesis of tool pipelines.
+
+For an in-depth guide on using these capabilities, refer to [Advanced Features](advanced.md).

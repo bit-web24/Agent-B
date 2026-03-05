@@ -24,6 +24,14 @@
 | **Retry with Back-off** | Automatic retry for transient LLM errors with exponential back-off |
 | **Tool Blacklisting** | Prevent the agent from calling specific tools |
 | **Full Trace** | Event-sourced execution log for observability and debugging |
+| **Agent Forking** | Spatially explore multiple reasoning paths in parallel |
+| **Adaptive Model Routing** | Switch models dynamically based on cost or confidence |
+| **Self-Healing Policies** | Intercept errors and dynamically apply fallback actions |
+| **Agent Introspection** | Anomaly detection monitors agent metrics behind the scenes |
+| **Deterministic Replay** | Record state transitions to ndjson for perfect reproducibility |
+| **Execution Contracts** | `Guard`, `Invariant`, and `PostCondition` closures for safety |
+| **Plan-and-Execute** | Native step-by-step planning and dynamic replanning |
+| **Tool Composition** | Synthesize new pipelined tools at runtime |
 
 ---
 
@@ -174,6 +182,14 @@ MaxSteps / FatalError from any state ──▶ ERROR (terminal)
 | `.task_type(type)` | Set the task type (for model routing) |
 | `.max_steps(n)` | Maximum planning steps (default: 15) |
 | `.retry_on_error(n)` | Enable retry wrapper with n retries |
+| `.fork_strategy(strategy)` | Configure parallel branch speculation |
+| `.routing_policy(policy)` | Dynamic model swapping |
+| `.self_healing(policy)` | Auto-recover from tool/LLM failures |
+| `.introspection(engine)` | Anomaly detection engine |
+| `.replay_recording(mode)` | Enable state trace recording |
+| `.planning_mode(mode)` | Pre-planning and sub-tasking |
+| `.tool_composition(config)` | Runtime tool synthesis |
+| `.invariant(name, fn)` | Execution invariants and contracts |
 
 ### Tool Registration
 

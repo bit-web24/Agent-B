@@ -98,6 +98,22 @@ When set, the LLM is instructed to return JSON conforming to this schema:
 
 ```rust
 AgentBuilder::new("Extract person info")
+    .output_schema(schema)
+    .build()?
+```
+
+## Advanced Configurations
+
+For detailed explanations of the following advanced configuration capabilities, refer to [docs/advanced.md](advanced.md).
+
+- **`fork_strategy(ForkConfig)`**: Branch the agent into parallel universes when confident reasoning fails.
+- **`routing_policy(RoutingPolicy)`**: Dynamically switch the active LLM based on specific runtime triggers.
+- **`self_healing(HealingPolicy)`**: Trap errors and LLM hallucinations before they become fatal.
+- **`introspection(IntrospectionEngine)`**: Run background telemetry detectors to flag anomalies to the agent.
+- **`replay_recording(ReplayRecording)`**: Record every micro-state transition into an NDJSON file for debugging.
+- **`planning_mode(PlanningMode)`**: Create formal step-by-step plans before executing tools.
+- **`tool_composition(CompositionConfig)`**: Allow the agent to synthesize new tools from primitives.
+- **`invariant(name, closure)`**: Halt the agent immediately if a core safety property is violated.
     .openai("")
     .output_schema("person", json!({
         "type": "object",
