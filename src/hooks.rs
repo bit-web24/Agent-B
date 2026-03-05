@@ -52,6 +52,10 @@ pub trait AgentHooks: Send + Sync {
 
     /// Called once at the very end of `engine.run()`.
     fn on_agent_end(&self, _result: Result<&str, &AgentError>, _memory: &AgentMemory) {}
+
+    /// Called when the introspection engine detects an anomaly.
+    fn on_anomaly_detected(&self, _anomaly: &crate::introspection::Anomaly, _memory: &AgentMemory) {
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +143,10 @@ impl AgentHooks for CompositeHooks {
             h.on_agent_end(r, memory);
         });
     }
+
+    fn on_anomaly_detected(&self, anomaly: &crate::introspection::Anomaly, memory: &AgentMemory) {
+        self.for_each(|h| h.on_anomaly_detected(anomaly, memory));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,6 +203,10 @@ impl AgentHooks for PrintHooks {
             ),
             Err(e) => println!("\x1b[1;31m═══ Agent failed: {}\x1b[0m", e),
         }
+    }
+
+    fn on_anomaly_detected(&self, anomaly: &crate::introspection::Anomaly, _memory: &AgentMemory) {
+        println!("\x1b[1;33m⚠️  [Anomaly] {}\x1b[0m", anomaly.to_note());
     }
 }
 

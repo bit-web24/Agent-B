@@ -13,16 +13,25 @@ impl PlanningState {
     /// Resolve the model to use for this call.
     ///
     /// Priority:
-    ///   1. `memory.config.models[task_type]`  — exact task-type match
-    ///   2. `memory.config.models["default"]`  — generic fallback
-    ///   3. `""`                               — let the LlmCaller use its own default
-    fn resolve_model<'a>(&self, memory: &'a AgentMemory) -> &'a str {
+    ///   0. `memory.routing_policy`              — adaptive routing (if set)
+    ///   1. `memory.config.models[task_type]`     — exact task-type match
+    ///   2. `memory.config.models["default"]`     — generic fallback
+    ///   3. `""`                                  — let the LlmCaller use its own default
+    fn resolve_model(&self, memory: &AgentMemory) -> String {
+        // Adaptive routing takes priority
+        if let Some(ref policy) = memory.routing_policy {
+            let routed = policy.resolve(memory);
+            if !routed.is_empty() {
+                return routed.to_string();
+            }
+        }
+        // Fall back to static model map
         let models = &memory.config.models;
         models
             .get(&memory.task_type)
             .or_else(|| models.get("default"))
-            .map(|s| s.as_str())
-            .unwrap_or("")
+            .map(|s| s.to_string())
+            .unwrap_or_default()
     }
 
     fn handle_tool_call(&self, memory: &mut AgentMemory, tool: ToolCall, confidence: f64) -> Event {

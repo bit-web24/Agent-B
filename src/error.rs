@@ -27,4 +27,7 @@ pub enum AgentError {
 
     #[error("Build error: {0}")]
     BuildError(String),
+
+    #[error("Contract violation '{name}': {message}")]
+    ContractViolation { name: String, message: String },
 }

@@ -1,4 +1,5 @@
 use crate::checkpoint::{AgentCheckpoint, CheckpointStore};
+use crate::contracts::{ContractSet, ContractViolationAction};
 use crate::error::AgentError;
 use crate::events::Event;
 use crate::hooks::{safe_hook, AgentHooks};
@@ -25,6 +26,9 @@ pub struct AgentEngine {
     pub session_id: String,
     pub checkpoint_store: Option<Arc<dyn CheckpointStore>>,
     pub hooks: Arc<dyn AgentHooks>,
+    pub contracts: ContractSet,
+    pub introspection: Option<crate::introspection::IntrospectionEngine>,
+    pub healing_policy: Option<crate::healing::HealingPolicy>,
 }
 
 impl AgentEngine {
@@ -39,6 +43,9 @@ impl AgentEngine {
         session_id: String,
         checkpoint_store: Option<Arc<dyn CheckpointStore>>,
         hooks: Arc<dyn AgentHooks>,
+        contracts: ContractSet,
+        introspection: Option<crate::introspection::IntrospectionEngine>,
+        healing_policy: Option<crate::healing::HealingPolicy>,
     ) -> Self {
         Self {
             memory,
@@ -51,6 +58,9 @@ impl AgentEngine {
             session_id,
             checkpoint_store,
             hooks,
+            contracts,
+            introspection,
+            healing_policy,
         }
     }
 
@@ -63,22 +73,79 @@ impl AgentEngine {
         let (tx, _rx) = mpsc::unbounded_channel();
         let safety_cap = self.memory.config.max_steps * 3;
         let mut iterations = 0;
+        let mut postcondition_retries = 0;
+        let max_postcondition_retries = 3;
 
         // Hook: agent start
         let hooks = self.hooks.clone();
         let task = self.memory.task.clone();
         safe_hook(|| hooks.on_agent_start(&task, &self.memory));
 
-        while !self.terminal_states.contains(self.state.as_str()) {
-            iterations += 1;
-            if iterations > safety_cap {
-                let err = AgentError::SafetyCapExceeded(iterations);
-                let hooks = self.hooks.clone();
-                safe_hook(|| hooks.on_agent_end(Err(&err), &self.memory));
-                return Err(err);
+        'outer: loop {
+            while !self.terminal_states.contains(self.state.as_str()) {
+                iterations += 1;
+                if iterations > safety_cap {
+                    let err = AgentError::SafetyCapExceeded(iterations);
+                    let hooks = self.hooks.clone();
+                    safe_hook(|| hooks.on_agent_end(Err(&err), &self.memory));
+                    return Err(err);
+                }
+
+                self.step(&tx).await?;
+
+                // Contract: check invariants after every step
+                if let Some(failure) = self.contracts.check_invariants(&self.memory) {
+                    match failure.action {
+                        ContractViolationAction::FatalError => {
+                            return Err(AgentError::ContractViolation {
+                                name: failure.contract_name,
+                                message: failure.message,
+                            });
+                        }
+                        ContractViolationAction::EmitEvent(ref evt) => {
+                            tracing::warn!(invariant = %failure.contract_name, event = %evt, "Invariant triggered event");
+                            let key = (self.state.clone(), Event::new(evt));
+                            if let Some(next) = self.transitions.get(&key).cloned() {
+                                self.state = next;
+                            }
+                        }
+                        _ => {} // Block/LogWarning — already logged, continue
+                    }
+                }
             }
 
-            self.step(&tx).await?;
+            // Contract: check postconditions before emitting final answer
+            if self.state == State::done() {
+                if let Some(failure) = self.contracts.check_postconditions(&self.memory) {
+                    match failure.action {
+                        ContractViolationAction::RetryPlanning => {
+                            postcondition_retries += 1;
+                            if postcondition_retries > max_postcondition_retries {
+                                return Err(AgentError::ContractViolation {
+                                    name: failure.contract_name,
+                                    message: format!(
+                                        "{} (exceeded {} retries)",
+                                        failure.message, max_postcondition_retries
+                                    ),
+                                });
+                            }
+                            tracing::warn!(postcondition = %failure.contract_name, retry = postcondition_retries, "PostCondition failed — retrying planning");
+                            self.state = State::planning();
+                            self.memory.final_answer = None;
+                            continue 'outer;
+                        }
+                        ContractViolationAction::FatalError => {
+                            return Err(AgentError::ContractViolation {
+                                name: failure.contract_name,
+                                message: failure.message,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            break; // All postconditions pass (or no postconditions) — exit loop
         }
 
         let result = if self.state == State::done() {
@@ -144,6 +211,48 @@ impl AgentEngine {
 
         tracing::debug!(state = %self.state, event = %event, "state produced event");
 
+        // Introspection: analyze recent execution history
+        let anomalies = if let Some(intro) = &mut self.introspection {
+            intro.analyze(&self.memory)
+        } else {
+            Vec::new()
+        };
+        for anomaly in anomalies {
+            let note = anomaly.to_note();
+            tracing::warn!(anomaly = ?anomaly, "Introspection anomaly: {}", note);
+
+            // Add to LLM context notes if not already present
+            if !self.memory.anomaly_notes.contains(&note) {
+                self.memory.anomaly_notes.push(note);
+            }
+
+            // Fire hook
+            let hooks = self.hooks.clone();
+            safe_hook(|| hooks.on_anomaly_detected(&anomaly, &self.memory));
+        }
+
+        // Self-healing: evaluate healing policy if configured
+        if let Some(policy) = &mut self.healing_policy {
+            if let Some(action) = policy.evaluate(&self.memory) {
+                tracing::info!(action = ?action, "Self-healing triggered");
+                let outcome = crate::healing::apply_healing(&action, &mut self.memory);
+                match outcome {
+                    crate::healing::HealingOutcome::ForceFinish => {
+                        // Jump to Done state
+                        self.state = State::done();
+                        return Ok(());
+                    }
+                    crate::healing::HealingOutcome::Retry => {
+                        // Stay in current state — don't apply transition
+                        return Ok(());
+                    }
+                    crate::healing::HealingOutcome::Continue => {
+                        // Fall through to normal transition
+                    }
+                }
+            }
+        }
+
         // Look up transition
         let key = (self.state.clone(), event.clone());
         let next_state =
@@ -154,6 +263,44 @@ impl AgentEngine {
                     from: self.state.clone(),
                     event: event.clone(),
                 })?;
+
+        // Contract: check transition guards before applying
+        if let Some(failure) = self
+            .contracts
+            .check_guards(&self.state, &next_state, &self.memory)
+        {
+            match failure.action {
+                ContractViolationAction::Block => {
+                    tracing::warn!(
+                        guard = %failure.contract_name,
+                        "Guard blocked transition {} → {} — staying in {}",
+                        self.state, next_state, self.state
+                    );
+                    // Don't apply transition; state stays the same
+                    return Ok(());
+                }
+                ContractViolationAction::EmitEvent(ref evt) => {
+                    // Redirect to a different transition via the custom event
+                    let alt_key = (self.state.clone(), Event::new(evt));
+                    if let Some(alt_next) = self.transitions.get(&alt_key).cloned() {
+                        tracing::info!(guard = %failure.contract_name, event = %evt, to = %alt_next, "Guard redirected transition");
+                        self.state = alt_next;
+                        return Ok(());
+                    } else {
+                        // No transition for the emitted event — treat as block
+                        tracing::warn!(guard = %failure.contract_name, event = %evt, "Guard emitted event but no transition found — blocking");
+                        return Ok(());
+                    }
+                }
+                ContractViolationAction::FatalError => {
+                    return Err(AgentError::ContractViolation {
+                        name: failure.contract_name,
+                        message: failure.message,
+                    });
+                }
+                _ => {} // RetryPlanning only for postconditions
+            }
+        }
 
         tracing::info!(from = %self.state, event = %event, to = %next_state, "transition");
         println!("  ══ {} --{}-->{} ══", self.state, event, next_state);

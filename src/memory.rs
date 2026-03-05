@@ -106,6 +106,15 @@ pub struct AgentMemory {
     /// Callback hooks for real-time observability (not serialized)
     #[serde(skip, default = "default_hooks")]
     pub hooks: Arc<dyn AgentHooks>,
+
+    // ── Adaptive Model Routing ──────────────────────────
+    /// Optional routing policy for dynamic model selection
+    #[serde(skip)]
+    pub routing_policy: Option<crate::routing::RoutingPolicy>,
+
+    // ── Introspection ────────────────────────────────────
+    /// Notes from anomaly detection, injected into LLM context
+    pub anomaly_notes: Vec<String>,
 }
 
 fn default_hooks() -> Arc<dyn AgentHooks> {
@@ -159,6 +168,8 @@ impl AgentMemory {
             cache: Arc::new(NoopCache),
             memory_strategy: Arc::new(FullMemory),
             hooks: Arc::new(NoopHooks),
+            routing_policy: None,
+            anomaly_notes: Vec::new(),
         }
     }
 

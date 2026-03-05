@@ -1,9 +1,12 @@
 use crate::budget::TokenBudget;
 use crate::checkpoint::CheckpointStore;
+use crate::contracts::{ContractSet, Invariant, PostCondition, TransitionGuard};
 use crate::engine::AgentEngine;
 use crate::error::AgentError;
 use crate::events::Event;
+use crate::healing::HealingPolicy;
 use crate::hooks::{AgentHooks, CompositeHooks, NoopHooks};
+use crate::introspection::{IntrospectionConfig, IntrospectionEngine};
 use crate::llm::{AnthropicCaller, AsyncLlmCaller, OpenAiCaller, RetryingLlmCaller};
 use crate::mcp::{bridge_mcp_tool, McpClient};
 use crate::memory::AgentMemory;
@@ -31,6 +34,9 @@ pub struct AgentBuilder {
     session_id: String,
     initial_state: Option<State>,
     hooks: Vec<Arc<dyn AgentHooks>>,
+    contracts: ContractSet,
+    introspection: Option<IntrospectionEngine>,
+    healing_policy: Option<HealingPolicy>,
 }
 
 impl AgentBuilder {
@@ -53,6 +59,9 @@ impl AgentBuilder {
             session_id: uuid::Uuid::new_v4().to_string(),
             initial_state: None,
             hooks: Vec::new(),
+            contracts: ContractSet::new(),
+            introspection: None,
+            healing_policy: None,
         }
     }
 
@@ -92,6 +101,47 @@ impl AgentBuilder {
         strategy: std::sync::Arc<dyn crate::memory_strategy::MemoryStrategy>,
     ) -> Self {
         self.memory.memory_strategy = strategy;
+        self
+    }
+
+    // ── Execution Contracts ───────────────────────────────────────────────────
+
+    /// Add a pre-condition guard on a state transition.
+    /// Guards are checked before applying the transition; failures block or abort.
+    pub fn guard(mut self, guard: TransitionGuard) -> Self {
+        self.contracts = self.contracts.add_guard(guard);
+        self
+    }
+
+    /// Add a global invariant checked after every agent step.
+    pub fn invariant(mut self, invariant: Invariant) -> Self {
+        self.contracts = self.contracts.add_invariant(invariant);
+        self
+    }
+
+    /// Add a post-condition checked just before the final answer is emitted.
+    pub fn postcondition(mut self, pc: PostCondition) -> Self {
+        self.contracts = self.contracts.add_postcondition(pc);
+        self
+    }
+
+    /// Set an adaptive model routing policy.
+    /// Rules are evaluated at each planning step to dynamically select the model.
+    pub fn routing_policy(mut self, policy: crate::routing::RoutingPolicy) -> Self {
+        self.memory.routing_policy = Some(policy);
+        self
+    }
+
+    /// Enable agent introspection / meta-reasoning.
+    /// Detects loops, stalls, thrashing, budget issues, and confidence degradation.
+    pub fn introspection(mut self, config: IntrospectionConfig) -> Self {
+        self.introspection = Some(IntrospectionEngine::new(config));
+        self
+    }
+
+    /// Enable self-healing policies for automatic recovery from failures.
+    pub fn self_healing(mut self, policy: HealingPolicy) -> Self {
+        self.healing_policy = Some(policy);
         self
     }
 
@@ -529,6 +579,9 @@ impl AgentBuilder {
             self.session_id,
             self.checkpoint_store,
             hooks,
+            self.contracts,
+            self.introspection,
+            self.healing_policy,
         );
 
         if let Some(state) = self.initial_state {
@@ -604,6 +657,9 @@ impl AgentBuilder {
             self.session_id,
             self.checkpoint_store,
             hooks,
+            self.contracts,
+            self.introspection,
+            self.healing_policy,
         );
 
         if let Some(state) = self.initial_state {
